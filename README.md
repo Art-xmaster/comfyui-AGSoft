@@ -5,7 +5,9 @@
 
 ## Установка
 
+
 cd ComfyUI/custom_nodes
+
 git clone https://github.com/Art-xmaster/comfyui-AGSoft.git
 
 
