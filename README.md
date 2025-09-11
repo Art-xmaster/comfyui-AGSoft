@@ -2,6 +2,7 @@
 
 Описание ваших узлов...
 
+AGSoft Empty Latent, AGSoft Img _Res, AGSoft Img_Res_MP, AGSoft Img_Pad for Outpainting, AGSoft Img_Pad for Outpainting_Adv, 
 
 ## Установка
 
