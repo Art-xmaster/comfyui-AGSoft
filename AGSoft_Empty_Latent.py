@@ -41,6 +41,8 @@ class AGSoft_Empty_Latent:
                 "896x1152": (896, 1152),
                 "960x1024": (960, 1024),
                 "960x1088": (960, 1088),
+                "1024x1280": (1024, 1280),
+                "1280x1536": (1280, 1536),
             }
             width, height = size_map[preset]
         
@@ -70,4 +72,5 @@ NODE_CLASS_MAPPINGS = {
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "AGSoft_Empty_Latent": "AGSoft Empty Latent"
+
 }
