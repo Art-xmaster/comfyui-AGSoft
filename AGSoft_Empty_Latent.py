@@ -9,7 +9,7 @@ class AGSoft_Empty_Latent:
         return {
             "required": {
                 "size_mode": (["Preset", "Custom"],),
-                "preset": (["512x512", "640x640", "768x768", "1024x1024", "512x768", "512x1024", "768x1024", "768x1280", "768x1344", "832x1152", "832x1216", "896x1088", "896x1152", "960x1024", "960x1088"],),
+                "preset": (["512x512", "640x640", "768x768", "1024x1024", "512x768", "512x1024", "768x1024", "768x1280", "768x1344", "832x1152", "832x1216", "896x1088", "896x1152", "960x1024", "960x1088", "1024x1280", "1280x1536"],),
                 "width": ("INT", {"default": 1024, "min": 8, "max": 4096, "step": 8}),
                 "height": ("INT", {"default": 1024, "min": 8, "max": 4096, "step": 8}),
                 "invert": ("BOOLEAN", {"default": False}),
@@ -74,3 +74,4 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "AGSoft_Empty_Latent": "AGSoft Empty Latent"
 
 }
+
