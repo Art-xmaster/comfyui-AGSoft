@@ -32,7 +32,7 @@ class AGSoft_Img_Res_MP:
                 "image": ("IMAGE",),
                 "target_megapixels": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 50.0, "step": 0.1}),
                 "interpolation": (list(INTERPOLATION_METHODS.keys()), {"default": "lanczos"}),
-                "multiple_of": ([0, 1, 2, 4, 8, 16, 32, 64, 128], {"default": 0})
+                "multiple_of": ([0, 1, 2, 4, 8, 16, 32, 64, 112, 128], {"default": 0})
             }
         }
 
@@ -100,4 +100,5 @@ NODE_CLASS_MAPPINGS = {
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "AGSoft_Img_Res_MP": "AGSoft Image Resize MP"
+
 }
