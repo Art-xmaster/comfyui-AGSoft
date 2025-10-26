@@ -1,0 +1,14 @@
+[project]
+name = "comfyui-AGSoft"
+description = "Collection of nodes for ComfyUI."
+version = "1.0.0"
+license = { file = "LICENSE" }
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/Art-xmaster/comfyui-AGSoft"
+
+[tool.comfy]
+PublisherId = "AGSoft"
+DisplayName = "comfyui-AGSoft"
+Icon = ""
