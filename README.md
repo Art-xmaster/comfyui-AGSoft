@@ -5,10 +5,11 @@ AGSoft Empty Latent, AGSoft Empty Latent QwenImage, AGSoft ImageRes, AGSoft Imag
 
 ## Installation
 
-cd ComfyUI/custom_nodes
+To install comfyui-AGSoft Custom Nodes for ComfyUI, you can follow the following steps:
 
-git clone https://github.com/Art-xmaster/comfyui-AGSoft.git
-
+1. Go to ComfyUI/custom_nodes dir in terminal (cmd)
+2. git clone https://github.com/Art-xmaster/comfyui-AGSoft.git
+3. Restart ComfyUI
 
 ## How To Use
 
