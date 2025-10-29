@@ -122,3 +122,6 @@ if not NODE_DISPLAY_NAME_MAPPINGS:
     logger.debug("NODE_DISPLAY_NAME_MAPPINGS пуст - будут использованы имена классов по умолчанию")
 else:
     logger.debug(f"Загружено {len(NODE_DISPLAY_NAME_MAPPINGS)} отображаемых имен")
+
+WEB_DIRECTORY = "./web"
+__all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS', 'WEB_DIRECTORY']
