@@ -1,0 +1,1 @@
+Copyright 2016 The Oswald Project Authors (https://github.com/googlefonts/OswaldFont)
