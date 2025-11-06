@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-AGSoft"
 description = "Collection of nodes for ComfyUI."
-version = "1.0.4"
+version = "1.0.5"
 license = { file = "LICENSE" }
 dependencies = ["numpy>=1.26.4", "opencv-python>=4.7.0.72"]
 
