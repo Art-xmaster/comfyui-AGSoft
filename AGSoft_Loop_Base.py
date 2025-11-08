@@ -171,7 +171,7 @@ class AGSoft_Loop_Random_Seed:
                     "tooltip": "Minimum possible seed value.\nМинимальное значение seed."
                 }),
                 "max_seed": ("INT", {
-                    "default": 10000,
+                    "default": 4294967295,
                     "min": 0,
                     "max": MAX_SEED,
                     "step": 1,
