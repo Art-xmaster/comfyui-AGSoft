@@ -66,7 +66,7 @@ class AGSoftTextOverlay:
     def INPUT_TYPES(s):
         font_dir = os.path.join(os.path.dirname(__file__), "fonts")
         os.makedirs(font_dir, exist_ok=True)
-        file_list = [f for f in os.listdir(font_dir) if f.lower().endswith(".ttf")]
+        file_list = [f for f in os.listdir(font_dir) if f.lower().endswith(('.ttf', '.otf'))]
         if not file_list:
             file_list = ["default (missing fonts)"]
         color_list = get_color_list()
