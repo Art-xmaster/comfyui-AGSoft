@@ -11,6 +11,8 @@ To install comfyui-AGSoft Custom Nodes for ComfyUI, you can follow the following
 2. git clone https://github.com/Art-xmaster/comfyui-AGSoft.git
 3. Restart ComfyUI
 
+Or install on ComfyUI-Manager, search comfyui-AGSoft and install
+
 ## How To Use
 
 Описание как использовать ваши узлы..."# comfyui-AGSoft" 
