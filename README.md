@@ -1,7 +1,7 @@
 # comfyui-AGSoft Custom Nodes for ComfyUI
 
 
-AGSoft Empty Latent, AGSoft Empty Latent QwenImage, AGSoft ImageRes, AGSoft ImageResMP, AGSoft Img Pad, AGSoft Img Pad Adv, AGSoft Image Crop, AGSoft Image Concatenate, AGSoft Image ConcatenateFromBatch, AGSoft Image Rotate, AGSoft Image & Mask Resize, AGSoft Image & Mask Resize Advanced, AGSoft Mask Fix, AGSoft Mask Blur, AGSoft Mask From Color, AGSoft Mask Composite, AGSoft Draw Mask On Image, AGSoft Inpaint Crop, AGSoft Inpaint Stitch, AGSoft Imag Stitch, AGSoft Loop Texts, AGSoft Loop Images, AGSoft Loop Float, AGSoft Loop Integer, AGSoft Loop Random Seed, AGSoft Text Concatenate X2\X4\X8, AGSoft Text Overlay, AGSoft KSampler, AGSoft Loop Samplers, AGSoft Text Split, AGSoft Text Multiline, AGSoft Text Replace, AGSoft Text Operation, AGSoft Show Text, AGSoft Text Input Switch X2\X4\X8...
+AGSoft Empty Latent, AGSoft Empty Latent QwenImage, AGSoft ImageRes, AGSoft ImageResMP, AGSoft Img Pad, AGSoft Img Pad Adv, AGSoft Image Crop, AGSoft Image Concatenate, AGSoft Image ConcatenateFromBatch, AGSoft Image Rotate, AGSoft Image & Mask Resize, AGSoft Image & Mask Resize Advanced, AGSoft Mask Fix, AGSoft Mask Blur, AGSoft Mask From Color, AGSoft Mask Composite, AGSoft Draw Mask On Image, AGSoft Inpaint Crop, AGSoft Inpaint Stitch, AGSoft Imag Stitch, AGSoft Loop Texts, AGSoft Loop Images, AGSoft Loop Float, AGSoft Loop Integer, AGSoft Loop Random Seed, AGSoft Text Concatenate X2\X4\X8, AGSoft Text Overlay, AGSoft KSampler, AGSoft Loop Samplers, AGSoft Text Split, AGSoft Text Multiline, AGSoft Text Replace, AGSoft Text Operation, AGSoft Show Text, AGSoft Text Input Switch X2\X4\X8, AGSoft Loop Lora Strengths...
 
 ## Installation
 
