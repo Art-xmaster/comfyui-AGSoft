@@ -1000,7 +1000,7 @@ class AGSoft_Image_Resize_Base:
     CATEGORY = "AGSoft/Image"
     
     # Описание ноды для UI
-DESCRIPTION = """
+    DESCRIPTION = """
 AGSoft Image Resize Base - Extended node for resizing images and masks.
 Supports 5 size specification modes, 3 scaling strategies, synchronous image and mask processing.
 
