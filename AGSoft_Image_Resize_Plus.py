@@ -431,12 +431,10 @@ class AGSoft_Image_Resize_Plus:
     CATEGORY = "AGSoft/Image"
     
     # Описание ноды для UI
-    DESCRIPTION = """
-    AGSoft Image Resize Plus - Расширенная нода для изменения размера изображений и масок. 
-    Поддерживает 5 режимов задания размеров, 3 стратегии масштабирования, синхронную обработку изображений и масок.
-    
-    AGSoft Image Resize Plus - Extended node for resizing images and masks. 
-    Supports 5 size specification modes, 3 scaling strategies, synchronous image and mask processing.
+    DESCRIPTION = """ 
+AGSoft Image Resize Plus - Extended node for resizing images and masks. Supports 5 size specification modes, 3 scaling strategies, synchronous image and mask processing.
+
+AGSoft Image Resize Plus - Расширенная нода для изменения размера изображений и масок. Поддерживает 5 режимов задания размеров, 3 стратегии масштабирования, синхронную обработку изображений и масок.
     """
     
     @classmethod
@@ -1002,12 +1000,12 @@ class AGSoft_Image_Resize_Base:
     CATEGORY = "AGSoft/Image"
     
     # Описание ноды для UI
-    DESCRIPTION = """
-    AGSoft Image Resize Base - Расширенная нода для изменения размера изображений и масок. 
-    Поддерживает 5 режимов задания размеров, 3 стратегии масштабирования, синхронную обработку изображений и масок.
-    
-    AGSoft Image Resize Base - Extended node for resizing images and masks. 
-    Supports 5 size specification modes, 3 scaling strategies, synchronous image and mask processing.
+DESCRIPTION = """
+AGSoft Image Resize Base - Extended node for resizing images and masks.
+Supports 5 size specification modes, 3 scaling strategies, synchronous image and mask processing.
+
+AGSoft Image Resize Base - Расширенная нода для изменения размера изображений и масок.
+Поддерживает 5 режимов задания размеров, 3 стратегии масштабирования, синхронную обработку изображений и масок.
     """
     
     def resize_image_tensor(
