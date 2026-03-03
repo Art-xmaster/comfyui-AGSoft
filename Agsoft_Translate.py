@@ -5,6 +5,11 @@
 """
 
 # Agsoft_Translate.py
+
+import os
+# Устанавливаем регион ДО импорта translators
+os.environ["translators_default_region"] = "EN"  # или "CN" для китайских сервисов
+
 import torch
 import comfy.utils
 import translators as ts
