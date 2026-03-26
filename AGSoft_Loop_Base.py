@@ -1,6 +1,6 @@
 # AGSoft_Loop_Base.py
 # Автор: AGSoft
-# Дата: 28 октября 2025 г.
+# Дата: 26 марта 2026 г.
 
 import random
 from decimal import Decimal, ROUND_HALF_UP
@@ -116,25 +116,40 @@ class AGSoft_Loop_Float:
             raise ValueError("Jump must be greater than 0.")
         
         prec = int(precision)
-        if prec == 1:
-            quantize_str = '0.1'
-        elif prec == 2:
-            quantize_str = '0.01'
-        else:  # prec == 3
-            quantize_str = '0.001'
+        values = []
         
+        # Используем Decimal для точных вычислений
+        quantize_str = f'0.{ "0" * prec }'
         quantize_decimal = Decimal(quantize_str)
+        
         current = Decimal(str(start_at_step))
         end = Decimal(str(end_at_step))
         step = Decimal(str(jump))
-        values = []
-
+        
         while current <= end:
-            rounded_val = float(current.quantize(quantize_decimal, rounding=ROUND_HALF_UP))
-            values.append(rounded_val)
+            # Округляем до нужной точности с помощью Decimal
+            rounded = current.quantize(quantize_decimal, rounding=ROUND_HALF_UP)
+            # Преобразуем в float
+            float_val = float(rounded)
+            
+            # Ключевое исправление: округляем до нужного количества знаков
+            # Это гарантирует, что числа будут отображаться правильно в интерфейсе ComfyUI
+            float_val = round(float_val, prec)
+            
+            values.append(float_val)
             current += step
-
-        return (values,)
+        
+        # Удаляем дубликаты, которые могут возникнуть из-за ошибок округления
+        unique_values = []
+        seen = set()
+        for v in values:
+            # Используем строковое представление с фиксированной точностью для сравнения
+            key = f"{v:.{prec}f}"
+            if key not in seen:
+                seen.add(key)
+                unique_values.append(v)
+        
+        return (unique_values,)
 
     @classmethod
     def IS_CHANGED(cls, start_at_step, end_at_step, jump, precision):
@@ -223,7 +238,7 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "AGSoft_Loop_Integer": "AGSoft Loop Integer",
-    "AGSoft_Loop_Float": "AGSoft Loop Float",
-    "AGSoft_Loop_Random_Seed": "AGSoft Loop Random Seed",
+    "AGSoft_Loop_Integer": "🔢 AGSoft Loop Integer",
+    "AGSoft_Loop_Float": "🔢 AGSoft Loop Float",
+    "AGSoft_Loop_Random_Seed": "🎲 AGSoft Loop Random Seed",
 }
