@@ -31,6 +31,6 @@ Or install on ComfyUI-Manager, search comfyui-AGSoft and install
 
 
 🔗 Полезные ссылки
-Документация и примеры: [Telegram-канал] (https://t.me/prompt_by_art)
+Документация и примеры: [Telegram-канал](https://t.me/prompt_by_art)
 
 Репозиторий: GitHub
