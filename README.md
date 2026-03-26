@@ -15,4 +15,8 @@ Or install on ComfyUI-Manager, search comfyui-AGSoft and install
 
 ## How To Use
 
-Описание как использовать ваши узлы..."# comfyui-AGSoft" 
+Описание как использовать узлы..."comfyui-AGSoft" 
+
+🔢AGSoft Integer, 🔢AGSoft Float, 🧮AGSoft Math Expression, 👁️AGSoft Show Any - https://t.me/prompt_by_art/1766
+
+
