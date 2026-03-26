@@ -17,6 +17,16 @@ Or install on ComfyUI-Manager, search comfyui-AGSoft and install
 
 Описание как использовать узлы..."comfyui-AGSoft" 
 
-🔢AGSoft Integer, 🔢AGSoft Float, 🧮AGSoft Math Expression, 👁️AGSoft Show Any - https://t.me/prompt_by_art/1766
+## 📚 Документация по нодам
+
+Подробное описание работы следующих нод доступно в Telegram-канале:
+
+| Нода | Документация |
+|------|--------------|
+| 🔢 AGSoft Integer | [Смотреть описание →](https://t.me/prompt_by_art/1766) |
+| 🔢 AGSoft Float | [Смотреть описание →](https://t.me/prompt_by_art/1766) |
+| 🧮 AGSoft Math Expression | [Смотреть описание →](https://t.me/prompt_by_art/1766) |
+| 👁️ AGSoft Show Any | [Смотреть описание →](https://t.me/prompt_by_art/1766) |
+
 
 
