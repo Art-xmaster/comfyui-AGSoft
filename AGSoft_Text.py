@@ -639,5 +639,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "AGSoft Text Input Switch X2": "AGSoft Text Input Switch X2",
     "AGSoft Text Input Switch X4": "AGSoft Text Input Switch X4",
     "AGSoft Text Input Switch X8": "AGSoft Text Input Switch X8",
-    "AGSoft Show Text": "AGSoft Show Text",
+    "AGSoft Show Text": "📝AGSoft Show Text",
 }
