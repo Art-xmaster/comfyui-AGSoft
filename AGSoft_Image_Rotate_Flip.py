@@ -4,11 +4,12 @@ AGSoft_Image_Rotate_Flip.py
 Поддержка:
 - Угол поворота (-360..360, шаг 1°)
 - Предустановки: 90, 180, 270, 360
-- Отражение: без, по горизонтали, по вертикали (в самом низу ноды)
-- Интерполяция: nearest, bilinear
+- Отражение: без, по горизонтали, по вертикали
+- Интерполяция: nearest, bilinear (для масок всегда используется nearest)
 - Фон: transparent, black, white, gray, red, green, blue, cyan, yellow
 - Expand: авто-расширение холста
-- Выходы: IMAGE, MASK (альфа-канал или полная непрозрачность), ширина (INT), высота (INT)
+- Синхронная трансформация опциональной входной маски
+- Выходы: IMAGE, MASK, ширина (INT), высота (INT)
 - Batch processing (B, H, W, C)
 
 Автор: AGSoft
@@ -51,7 +52,7 @@ class AGSoft_Image_Rotate_Flip:
                 "interpolation": (
                     ["nearest", "bilinear"], {
                         "default": "bilinear",
-                        "tooltip": "Алгоритм сглаживания. Только эти два метода стабильно работают с тензорами.",
+                        "tooltip": "Алгоритм сглаживания для изображения. Только эти два метода стабильно работают с тензорами.",
                     },
                 ),
                 "background_color": (
@@ -68,6 +69,11 @@ class AGSoft_Image_Rotate_Flip:
                 ),
             },
             "optional": {
+                "mask": (
+                    "MASK", {
+                        "tooltip": "Опциональная маска. Будет трансформирована синхронно с изображением (поворот, отражение, expand). Для маски всегда используется интерполяция 'nearest'.",
+                    },
+                ),
                 "rotation_preset": (
                     ["none", "90", "180", "270", "360"], {
                         "default": "none",
@@ -87,7 +93,7 @@ class AGSoft_Image_Rotate_Flip:
     RETURN_NAMES = ("image", "mask", "width", "height")
     FUNCTION = "transform_image"
     CATEGORY = "AGSoft/Image"
-    DESCRIPTION = "Поворот и отражение изображения с выбором фона, интерполяции и расширением холста. Возвращает маску и новые размеры."
+    DESCRIPTION = "Поворот и отражение изображения с синхронной трансформацией маски (если предоставлена). Возвращает IMAGE, MASK, width, height."
 
     def transform_image(
         self,
@@ -96,6 +102,7 @@ class AGSoft_Image_Rotate_Flip:
         interpolation: str,
         background_color: str,
         expand: bool,
+        mask: torch.Tensor = None,
         rotation_preset: str = "none",
         flip_mode: str = "none",
     ) -> Tuple[torch.Tensor, torch.Tensor, int, int]:
@@ -106,6 +113,7 @@ class AGSoft_Image_Rotate_Flip:
         if interp_mode is None:
             raise ValueError(f"Неподдерживаемый метод интерполяции: {interpolation}")
 
+        # --- Трансформация изображения ---
         # (B, H, W, C) → (B, C, H, W)
         image_chw = image.permute(0, 3, 1, 2)
 
@@ -131,7 +139,7 @@ class AGSoft_Image_Rotate_Flip:
                 fill=fill_value,
             )
         except Exception as e:
-            raise RuntimeError(f"Ошибка при трансформации: {e}")
+            raise RuntimeError(f"Ошибка при трансформации изображения: {e}")
 
         if flip_mode == "horizontal":
             transformed_chw = TF.hflip(transformed_chw)
@@ -139,17 +147,46 @@ class AGSoft_Image_Rotate_Flip:
             transformed_chw = TF.vflip(transformed_chw)
 
         B, C, H, W = transformed_chw.shape
-
-        # Извлекаем маску: если 4 канала, берем альфа-канал, иначе создаем маску полной непрозрачности
-        if C == 4:
-            mask = transformed_chw[:, 3, :, :]
-        else:
-            mask = torch.ones((B, H, W), dtype=transformed_chw.dtype, device=transformed_chw.device)
-
-        # Обратно в (B, H, W, C) для IMAGE
         final_image = transformed_chw.permute(0, 2, 3, 1)
 
-        return (final_image, mask, W, H)
+        # --- Трансформация маски ---
+        if mask is not None:
+            # Убеждаемся, что маска имеет форму (B, H, W)
+            if mask.dim() == 2:
+                mask = mask.unsqueeze(0)
+            
+            # (B, H, W) -> (B, 1, H, W)
+            mask_chw = mask.unsqueeze(1)
+            
+            # Если фон прозрачный, новые области маски должны быть 0.0 (прозрачные). 
+            # Если фон сплошной, новые области считаются частью изображения, поэтому 1.0 (непрозрачные).
+            fill_mask = 0.0 if background_color == "transparent" else 1.0
+            
+            try:
+                transformed_mask_chw = TF.rotate(
+                    img=mask_chw,
+                    angle=angle_degrees,
+                    interpolation=TF.InterpolationMode.NEAREST, # Для масок всегда nearest
+                    expand=expand,
+                    fill=fill_mask,
+                )
+            except Exception as e:
+                raise RuntimeError(f"Ошибка при трансформации маски: {e}")
+
+            if flip_mode == "horizontal":
+                transformed_mask_chw = TF.hflip(transformed_mask_chw)
+            elif flip_mode == "vertical":
+                transformed_mask_chw = TF.vflip(transformed_mask_chw)
+                
+            output_mask = transformed_mask_chw.squeeze(1)
+        else:
+            # Если маска не передана, используем альфа-канал или создаем полную непрозрачность
+            if C == 4:
+                output_mask = transformed_chw[:, 3, :, :]
+            else:
+                output_mask = torch.ones((B, H, W), dtype=transformed_chw.dtype, device=transformed_chw.device)
+
+        return (final_image, output_mask, W, H)
 
 NODE_CLASS_MAPPINGS = {
     "AGSoft_Image_Rotate_Flip": AGSoft_Image_Rotate_Flip,
