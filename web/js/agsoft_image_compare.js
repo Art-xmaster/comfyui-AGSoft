@@ -1,29 +1,27 @@
 // agsoft_image_compare.js
 // Автор: AGSoft
 // Дата: 14 июня 2026 г.
-// Описание: JavaScript расширение для динамического создания входов ноды AGSoft Image Compare.js
-
+// Описание: JavaScript расширение для динамического создания входов ноды AGSoft Image Compare
 import { app } from "../../../scripts/app.js";
 
 function drawImageFit(ctx, img, areaX, areaY, areaW, areaH, zoom, panX, panY) {
     if (!img || !img.complete || img.width === 0 || areaW <= 0 || areaH <= 0) return;
-    
     ctx.save();
     ctx.beginPath();
     ctx.rect(areaX, areaY, areaW, areaH);
     ctx.clip();
-    
+
     const scaleX = areaW / img.width;
     const scaleY = areaH / img.height;
     const scale = Math.min(scaleX, scaleY);
-    
+
     const drawW = img.width * scale * zoom;
     const drawH = img.height * scale * zoom;
     const centerX = areaX + areaW / 2;
     const centerY = areaY + areaH / 2;
     const dx = centerX - (drawW / 2) + panX;
     const dy = centerY - (drawH / 2) + panY;
-    
+
     ctx.drawImage(img, dx, dy, drawW, drawH);
     ctx.restore();
 }
@@ -32,13 +30,12 @@ app.registerExtension({
     name: "AGSoft.ImageCompare",
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
         if (nodeData.name === "AGSoftImageCompare") {
-            
             const onNodeCreated = nodeType.prototype.onNodeCreated;
             nodeType.prototype.onNodeCreated = function () {
                 const r = onNodeCreated ? onNodeCreated.apply(this, arguments) : undefined;
                 this.ag_img1 = null;
                 this.ag_img2 = null;
-                this.ag_sliderPos = 0.5; 
+                this.ag_sliderPos = 0.5;
                 this.ag_isDragging = false;
                 this.ag_hideImg2 = false;
                 this.setSize([450, 450]);
@@ -56,17 +53,6 @@ app.registerExtension({
                         const img = new Image();
                         img.onload = () => {
                             this[imgProp] = img;
-                            
-                            const aspect = img.width / img.height;
-                            let targetW = 512;
-                            let targetH = targetW / aspect;
-                            
-                            if (targetH > 512) {
-                                targetH = 512;
-                                targetW = targetH * aspect;
-                            }
-                            
-                            this.setSize([Math.max(300, targetW), Math.max(300, targetH + 150)]);
                             app.graph.setDirtyCanvas(true, true);
                         };
                         img.src = url;
@@ -98,8 +84,7 @@ app.registerExtension({
                 
                 const padding = 10;
                 
-                // ИСПРАВЛЕНИЕ: Вычисляем реальную позицию после всех виджетов
-                let yStart = 10; // Минимальный отступ от верха
+                let yStart = 10;
                 if (this.widgets && this.widgets.length > 0) {
                     let maxWidgetBottom = 0;
                     for (let widget of this.widgets) {
@@ -108,7 +93,7 @@ app.registerExtension({
                             maxWidgetBottom = widgetBottom;
                         }
                     }
-                    yStart = maxWidgetBottom + 10; // Отступ после последнего виджета
+                    yStart = maxWidgetBottom + 10;
                 }
                 
                 const w = Math.max(10, this.size[0] - padding * 2);
@@ -201,7 +186,7 @@ app.registerExtension({
                         this.ag_isDragging = true;
                         this.ag_sliderPos = Math.max(0, Math.min(1, (pos[0] - padding) / w));
                         graphcanvas.setDirty(true, true);
-                        return true; 
+                        return true;
                     }
                 }
                 return onMouseDown ? onMouseDown.apply(this, arguments) : false;
@@ -229,7 +214,7 @@ app.registerExtension({
                 if (e.code === 'Space') {
                     this.ag_hideImg2 = !this.ag_hideImg2;
                     graphcanvas.setDirty(true, true);
-                    return true; 
+                    return true;
                 }
                 return onKeyDown ? onKeyDown.apply(this, arguments) : false;
             };
