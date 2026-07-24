@@ -141,7 +141,7 @@ class WorkflowImage {
             return [0, 0, 800, 600];
         }
 
-        const padding = 400;
+        const padding = 100;
 
         return [
             minX - padding,
