@@ -324,13 +324,13 @@ class AGSoft_LTX_Base:
                         "default": 1.0,
                         "min": 0.1,
                         "max": 8.0,
-                        "step": 0.01,
+                        "step": 0.1,
                         "display": "number",
                         "tooltip": (
                             "Target resolution in megapixels (MP) for Megapixels mode.\n\n"
                             "• 1.0 MP = 1,000,000 pixels (e.g. ~1024×1024).\n"
                             "• Range: 0.1 to 8.0 MP.\n"
-                            "• Step: 0.01 MP (10,000 pixels).\n"
+                            "• Step: 0.1 MP (10,000 pixels).\n"
                             "• Width and height calculated automatically:\n"
                             "  – Based on selected aspect_ratio.\n"
                             "  – Rounded to nearest multiple of 32.\n\n"
@@ -342,7 +342,7 @@ class AGSoft_LTX_Base:
                             "Целевое разрешение в мегапикселях (MP) для режима Megapixels.\n\n"
                             "• 1.0 MP = 1 000 000 пикселей (например, ~1024×1024).\n"
                             "• Диапазон: 0.1 – 8.0 MP.\n"
-                            "• Шаг: 0.01 MP (10 000 пикселей).\n"
+                            "• Шаг: 0.1 MP (10 000 пикселей).\n"
                             "• Ширина и высота рассчитываются автоматически:\n"
                             "  – На основе выбранного aspect_ratio.\n"
                             "  – Округляются до кратности 32.\n\n"
