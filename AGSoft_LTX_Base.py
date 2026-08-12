@@ -325,7 +325,7 @@ class AGSoft_LTX_Base:
                         "min": 0.1,
                         "max": 8.0,
                         "step": 0.01,
-                        "display": "slider",
+                        "display": "number",
                         "tooltip": (
                             "Target resolution in megapixels (MP) for Megapixels mode.\n\n"
                             "• 1.0 MP = 1,000,000 pixels (e.g. ~1024×1024).\n"
