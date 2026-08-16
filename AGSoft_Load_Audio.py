@@ -78,7 +78,7 @@ except ImportError:
 
 # Маркер версии: если этой строки нет в консоли после старта — файл не применился.
 # Version marker: if this line is not in console after startup — file was not applied.
-print("[AGSoft Load Audio] v16.10 loaded (preview + drag&drop)")
+# print("[AGSoft Load Audio] v16.10 loaded (preview + drag&drop)")
 
 
 def _list_audio_files():
