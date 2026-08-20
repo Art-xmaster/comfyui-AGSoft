@@ -9,6 +9,6 @@ dependencies = ["numpy>=1.26.4", "opencv-python>=4.7.0.72", "translators"]
 Repository = "https://github.com/Art-xmaster/comfyui-AGSoft"
 
 [tool.comfy]
-PublisherId = "AGSoft"
+PublisherId = "agsoft"
 DisplayName = "comfyui-AGSoft"
 Icon = ""
