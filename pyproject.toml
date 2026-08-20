@@ -11,4 +11,3 @@ Repository = "https://github.com/Art-xmaster/comfyui-AGSoft"
 [tool.comfy]
 PublisherId = "agsoft"
 DisplayName = "comfyui-AGSoft"
-Icon = ""
