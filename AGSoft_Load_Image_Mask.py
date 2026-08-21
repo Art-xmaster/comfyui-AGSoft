@@ -57,7 +57,7 @@ except Exception:
 
 # Маркер версии: если этой строки нет в консоли после старта — файл не применился.
 # Version marker: if this line is not in console after startup — file was not applied.
-print("[AGSoft Load Image & Mask] v1.4 loaded (preview follows custom_path: widget + LINK + executed)")
+# print("[AGSoft Load Image & Mask] v1.4 loaded (preview follows custom_path: widget + LINK + executed)")
 
 # ==============================================================================
 # Префикс временных превью-копий в папке input.
