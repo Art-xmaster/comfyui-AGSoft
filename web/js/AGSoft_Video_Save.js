@@ -267,21 +267,12 @@ app.registerExtension({
                 imgEl.removeAttribute("src");
 
                 videoEl.style.display = "block";
+                
                 videoEl.src = url;
                 videoEl.load();
-
-                // СО ЗВУКОМ: пробуем unmuted; если autoplay-политика запретила —
-                // уходим в muted и играем (анмут — по наведению).
-                // WITH SOUND: try unmuted; if the autoplay policy blocks it —
-                // fall back to muted and play (unmute on hover).
-                videoEl.muted = false;
-                const pr = videoEl.play();
-                if (pr) {
-                    pr.catch(() => {
-                        videoEl.muted = true;
-                        videoEl.play().catch(() => { });
-                    });
-                }
+                try {
+                    videoEl.pause();
+                } catch (e) {} 
             }
 
             // Запоминаем для сериализации в воркфлоу.
