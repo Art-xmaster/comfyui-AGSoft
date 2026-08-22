@@ -916,7 +916,12 @@ def _embed_metadata(video_file, meta_dict):
 
     fd, meta_path = tempfile.mkstemp(prefix="agsoft_meta_", suffix=".ffmeta")
     os.close(fd)
-    fd, tmp_out = tempfile.mkstemp(prefix="agsoft_meta_", suffix=f".{ext}")
+
+    fd, tmp_out = tempfile.mkstemp(
+        prefix="agsoft_meta_",
+        suffix=f".{ext}",
+        dir=os.path.dirname(os.path.abspath(video_file)),
+    )
     os.close(fd)
 
     try:
