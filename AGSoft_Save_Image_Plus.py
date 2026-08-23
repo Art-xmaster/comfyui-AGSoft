@@ -553,9 +553,12 @@ class AGSoftSaveImagePlus:
     ):
         try:
             if images is None or len(images) == 0:
-                raise ValueError(
-                    "[AGSoft Save Image Plus] No images connected to the 'images' input."
-                )
+                # Ничего не подключено — тихий no-op, чтобы не ронять весь prompt.
+                # No images connected — silent no-op so the whole prompt doesn't fail.
+                return {
+                    "ui": {"agsoft_previews": []},
+                    "result": (torch.zeros((1, 8, 8, 3), dtype=torch.float32), 0, 0, "", ""),
+                }
 
             fmt = image_format if image_format in FORMAT_PRESETS else "png"
             if fmt == "png":
