@@ -71,7 +71,7 @@ def _list_sounds():
     return BUILTIN_SOUNDS + files
 
 
-print("[AGSoft Process Notify] sounds:", _list_sounds())
+# print("[AGSoft Process Notify] sounds:", _list_sounds())
 
 
 # ------------------------------------------------------------------------------
