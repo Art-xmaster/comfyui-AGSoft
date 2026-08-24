@@ -691,7 +691,6 @@ NODE_CLASS_MAPPINGS: Dict[str, type] = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS: Dict[str, str] = {
-    "AGSoft Image Crop": "✂️AGSoft Image Crop"
+    "AGSoft Image Crop": "🖼️✂️AGSoft Image Crop"
 }
 
-__all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS']
