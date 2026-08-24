@@ -135,11 +135,32 @@ from PIL import Image
 from aiohttp import web
 from server import PromptServer
 
-try:
-    import imageio_ffmpeg
-    FFMPEG_PATH = imageio_ffmpeg.get_ffmpeg_exe()
-except ImportError:
-    FFMPEG_PATH = "ffmpeg"
+def _find_ffmpeg():
+    """
+    Ищем ffmpeg: сначала imageio_ffmpeg (бандл), затем PATH.
+    Любая ошибка imageio_ffmpeg больше не роняет нас в "голый" ffmpeg.
+    """
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        pass
+    return shutil.which("ffmpeg") or "ffmpeg"
+
+FFMPEG_PATH = _find_ffmpeg()
+
+def _ffmpeg_available():
+    """
+    True, если FFMPEG_PATH реально существует (абсолютный путь — файл на
+    диске, имя — найдено в PATH). Нужна, чтобы НЕ вызывать subprocess с
+    заведомо отсутствующим exe — иначе WinError 2 в логах у пользователей.
+    """
+    p = FFMPEG_PATH or ""
+    if not p:
+        return False
+    if os.path.isabs(p) or os.sep in p:
+        return os.path.isfile(p)
+    return shutil.which(p) is not None
 
 try:
     from comfy_api.input_impl import VideoFromFile
@@ -158,7 +179,7 @@ logger = logging.getLogger(__name__)
 
 # Маркер версии: если этой строки нет в консоли после старта — файл не применился.
 # Version marker: if this line is not in console after startup — file was not applied.
-# print("[AGSoft Video Save] v30.08 loaded (no-op preview WITH sound + subfolder + reordered widgets + PURE-graph embed + codecs + serialized preview + LoadVideo-style resize)")
+# print("[AGSoft Video Save] v31.08 loaded (no-op preview WITH sound + subfolder + reordered widgets + PURE-graph embed + codecs + serialized preview + LoadVideo-style resize + NATIVE meta parse without ffmpeg)")
 
 # ------------------------------------------------------------------------------
 # Пресеты форматов/кодеков.
@@ -194,6 +215,12 @@ def _get_encoders():
     global _ENCODERS_CACHE
     if _ENCODERS_CACHE is not None:
         return _ENCODERS_CACHE
+
+    # === нет ffmpeg — тихо выходим, без WinError 2 ===
+    if not _ffmpeg_available():
+        _ENCODERS_CACHE = set()
+        return _ENCODERS_CACHE
+    # ===========================================================
 
     enc = set()
     try:
@@ -392,6 +419,10 @@ def _get_video_info(path):
         "codec": "", "has_audio": False, "audio_codec": "",
     }
 
+    if not _ffmpeg_available():
+        _VIDEO_INFO_CACHE[key] = info
+        return info
+
     try:
         proc = subprocess.run(
             [FFMPEG_PATH, "-hide_banner", "-i", path],
@@ -578,6 +609,9 @@ async def agsoft_preview_path(request):
 
     if not os.path.isfile(path):
         return web.Response(status=404)
+
+    if not _ffmpeg_available():
+        return web.Response(status=503, text="ffmpeg not available")
 
     try:
         start = float(request.query.get("start", "0") or 0)
@@ -1005,6 +1039,184 @@ def _parse_ffmetadata_comment(text):
         return _unwrap_workflow(data.get("workflow"))
     return None
 
+def _comment_to_workflow(raw):
+    """comment (JSON) → ЧИСТЫЙ воркфлоу; None если не JSON/пусто."""
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return None
+    if isinstance(data, dict):
+        return _unwrap_workflow(data.get("workflow"))
+    return _unwrap_workflow(data)
+
+def _iter_boxes(buf, start, end):
+    """Перебор MP4-боксов: (type, payload_start, payload_end)."""
+    p = start
+    while p + 8 <= end:
+        n = struct.unpack(">I", buf[p:p+4])[0]
+        t = buf[p+4:p+8]
+        if n < 8:
+            break
+        yield t, p + 8, min(p + n, end)
+        p += n
+
+def _parse_data_box(item):
+    """Пейлоуд QuickTime-бокса 'data' (пропуск type+locale, 8 байт)."""
+    q = 0
+    while q + 8 <= len(item):
+        n = struct.unpack(">I", item[q:q+4])[0]
+        if n < 8 or q + n > len(item):
+            break
+        if item[q+4:q+8] == b"data":
+            return item[q+16:q+n].decode("utf-8", "ignore")
+        q += n
+    return None
+
+def _extract_mp4_comment(path):
+    """
+    Чистый парсер mp4/mov: comment из moov/udta/meta/keys/ilst
+    (то, что пишет ffmpeg с -movflags use_metadata_tags).
+    mdat не читается — только заголовки, быстро даже на больших файлах.
+    """
+    with open(path, "rb") as f:
+        f.seek(0, 2)
+        total = f.tell()
+        f.seek(0)
+        moov = None
+        while f.tell() + 8 <= total:
+            hdr = f.read(8)
+            if len(hdr) < 8:
+                break
+            n = struct.unpack(">I", hdr[:4])[0]
+            t = hdr[4:8]
+            h = 8
+            if n == 1:
+                n = struct.unpack(">Q", f.read(8))[0]
+                h = 16
+            elif n == 0:
+                n = total - (f.tell() - 8)
+            if n < h:
+                break
+            if t == b"moov":
+                moov = f.read(n - h)
+                break
+            f.seek(n - h, 1)
+    if not moov:
+        return None
+    udta = None
+    for t, s, e in _iter_boxes(moov, 0, len(moov)):
+        if t == b"udta":
+            udta = moov[s:e]
+            break
+    if not udta:
+        return None
+    keys, ilst = {}, None
+    for t, s, e in _iter_boxes(udta, 0, len(udta)):
+        if t != b"meta":
+            continue
+        body = udta[s+4:e]  # meta — fullbox: пропускаем version/flags
+        for t2, s2, e2 in _iter_boxes(body, 0, len(body)):
+            if t2 == b"keys":
+                cnt = struct.unpack(">I", body[s2+4:s2+8])[0]
+                p = s2 + 8
+                for i in range(1, cnt + 1):
+                    if p + 8 > e2:
+                        break
+                    n = struct.unpack(">I", body[p:p+4])[0]
+                    if n < 8 or p + n > e2:
+                        break
+                    if body[p+4:p+8] == b"key ":
+                        keys[i] = body[p+12:p+n].decode("utf-8", "ignore")
+                    p += n
+            elif t2 == b"ilst":
+                ilst = body[s2:e2]
+    if ilst is None:
+        # Фолбэк: стандартный тег ©cmt напрямую в udta (старые файлы).
+        for t, s, e in _iter_boxes(udta, 0, len(udta)):
+            if t == b"\xa9cmt":
+                return _parse_data_box(udta[s:e])
+        return None
+    p = 0
+    end = len(ilst)
+    while p + 8 <= end:
+        n = struct.unpack(">I", ilst[p:p+4])[0]
+        idx = struct.unpack(">I", ilst[p+4:p+8])[0]
+        if n < 8 or p + n > end:
+            break
+        if keys.get(idx) == "comment":
+            return _parse_data_box(ilst[p+8:p+n])
+        p += n
+    return None
+
+def _extract_mkv_comment(path):
+    """
+    Чистый парсер EBML (mkv/webm): comment из Tags/Tag/SimpleTag
+    (TagName=comment → TagString). Cluster'ы пропускаются seek'ом.
+    """
+    SEG, TAGS, TAG, SIMPLE, NAME, STR = (
+        0x18538067, 0x125456A4, 0x7373, 0x6773, 0x45A3, 0x4487,
+    )
+    with open(path, "rb") as f:
+        f.seek(0, 2)
+        limit = f.tell()
+        f.seek(0)
+
+        def read_hdr():
+            b = f.read(1)
+            if not b:
+                return None, None
+            b0 = b[0]
+            il = next((l for l in range(1, 9) if b0 & (0x80 >> (l - 1))), 0)
+            if not il:
+                return None, None
+            eid = b0
+            for _ in range(il - 1):
+                nb = f.read(1)
+                if not nb:
+                    return None, None
+                eid = (eid << 8) | nb[0]
+            sb = f.read(1)
+            if not sb:
+                return None, None
+            s0 = sb[0]
+            sl = next((l for l in range(1, 9) if s0 & (0x80 >> (l - 1))), 0)
+            if not sl:
+                return None, None
+            size = s0 & (0xFF >> sl)
+            for _ in range(sl - 1):
+                nb = f.read(1)
+                if not nb:
+                    return None, None
+                size = (size << 8) | nb[0]
+            return eid, size
+
+        def scan(limit):
+            name = None
+            while f.tell() < limit:
+                eid, size = read_hdr()
+                if eid is None:
+                    return None
+                nxt = f.tell() + size
+                if nxt > limit:
+                    return None
+                if eid == NAME:
+                    name = f.read(size).decode("utf-8", "ignore")
+                    continue
+                if eid == STR:
+                    val = f.read(size).decode("utf-8", "ignore")
+                    if name == "comment":
+                        return val
+                    continue
+                if eid in (SEG, TAGS, TAG, SIMPLE):
+                    r = scan(nxt)
+                    if r:
+                        return r
+                f.seek(nxt)
+            return None
+
+        return scan(limit)
 
 def _path_allowed(path):
     """
@@ -1086,7 +1298,6 @@ async def agsoft_extract_workflow(request):
         reader = await request.multipart()
         if reader is None:
             return web.json_response({"workflow": None})
-
         field = None
         f = await reader.next()
         while f is not None:
@@ -1094,39 +1305,44 @@ async def agsoft_extract_workflow(request):
                 field = f
                 break
             f = await reader.next()
-
         if field is None:
             return web.json_response({"workflow": None})
-
         fd, tmp = tempfile.mkstemp(
             prefix="agsoft_drop_",
             suffix=os.path.splitext(field.filename or "")[1] or ".mp4",
         )
         os.close(fd)
-
         with open(tmp, "wb") as out:
             while True:
                 chunk = await field.read_chunk(1024 * 1024)
                 if not chunk:
                     break
                 out.write(chunk)
-
-        # Дамп метаданных контейнера через ffmpeg (читает только заголовок).
-        # Dump the container metadata via ffmpeg (reads the header only).
-        proc = subprocess.run(
-            [FFMPEG_PATH, "-hide_banner", "-i", tmp, "-f", "ffmetadata", "-"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            encoding="utf-8",
-            errors="ignore",
-            timeout=30,
-        )
-
-        workflow = _parse_ffmetadata_comment(proc.stdout or "")
-
+        ext = os.path.splitext(field.filename or "")[1].lstrip(".").lower()
+        workflow = None
+        # 1) Чистый парсер контейнера — работает БЕЗ ffmpeg (фикс WinError 2
+        #    у пользователей, у которых ffmpeg не установлен).
+        try:
+            if ext in ("mp4", "mov", "m4v"):
+                workflow = _comment_to_workflow(_extract_mp4_comment(tmp))
+            elif ext in ("mkv", "webm"):
+                workflow = _comment_to_workflow(_extract_mkv_comment(tmp))
+        except Exception as e:
+            logger.warning(f"[AGSoft Video Save] native meta parse failed: {e}")
+        # 2) Фолбэк через ffmpeg — ТОЛЬКО если ffmpeg реально доступен,
+        #    иначе не дёргаем subprocess и не спамим WinError 2.
+        if workflow is None and _ffmpeg_available():
+            proc = subprocess.run(
+                [FFMPEG_PATH, "-hide_banner", "-i", tmp, "-f", "ffmetadata", "-"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                encoding="utf-8",
+                errors="ignore",
+                timeout=30,
+            )
+            workflow = _parse_ffmetadata_comment(proc.stdout or "")
         return web.json_response({"workflow": workflow})
-
     except Exception as e:
         logger.warning(f"[AGSoft Video Save] extract_workflow failed: {e}")
         return web.json_response({"workflow": None})
@@ -1137,7 +1353,6 @@ async def agsoft_extract_workflow(request):
                     os.remove(tmp)
             except Exception:
                 pass
-
 
 class AGSoftVideoSave:
     @classmethod
