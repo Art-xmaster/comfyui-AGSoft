@@ -7,7 +7,7 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
-console.log("[AGSoft Video Save] JS extension loaded v30.08 (no-op preview WITH sound + serialized preview + PURE-graph embed + video workflow restore + LoadVideo-style resize + global revive)");
+console.log("[AGSoft Video Save] JS extension loaded v31.09 (no-op preview WITH sound + serialized preview + PURE-graph embed + video workflow restore + LoadVideo-style resize + global revive + load-node passthrough + drop passthrough fallback)");
 
 // ------------------------------------------------------------------------------
 // Контейнеры, где браузер скорее всего не сможет играть звук (AC3/DTS) —
@@ -116,6 +116,29 @@ const nodeAtEvent = (e) => {
 };
 
 let workflowDropBound = false;
+// Синтетические drop-события, которые мы сами повторно бросили в ComfyUI —
+// их НЕ перехватываем. Synthetic re-dispatched drops — do NOT intercept.
+const redispatchedDrops = new WeakSet();
+// Passthrough: отдаём drop ComfyUI, как будто расширения нет. Иначе файл
+// «умрёт» в браузере (дефолт уже погашен preventDefault'ом).
+// Passthrough: hand the drop to ComfyUI as if the extension were absent.
+const passthroughDrop = (e, file) => {
+    try {
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        const evt = new DragEvent("drop", {
+            bubbles: true,
+            cancelable: true,
+            clientX: e.clientX,
+            clientY: e.clientY,
+            dataTransfer: dt,
+        });
+        redispatchedDrops.add(evt);
+        (e.target || document.body).dispatchEvent(evt);
+    } catch (err) {
+        console.warn("[AGSoft Video Save] drop passthrough failed:", err);
+    }
+};
 
 const bindWorkflowDrop = () => {
     if (workflowDropBound) return;
@@ -124,6 +147,8 @@ const bindWorkflowDrop = () => {
     // window + capture=true: перехватываем РАНЬШЕ всех обработчиков ComfyUI.
     // window + capture=true: intercept BEFORE all ComfyUI handlers.
     window.addEventListener("drop", (e) => {
+
+        if (redispatchedDrops.has(e)) return; // синтетика — идёт в ComfyUI
         const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
         if (!file) return;
 
@@ -134,7 +159,8 @@ const bindWorkflowDrop = () => {
         // Тащат на ноду загрузки — пусть работает её drag&drop-загрузка.
         // Dropped onto a load node — let its drag&drop upload handle it.
         const n = nodeAtEvent(e);
-        if (n && (n.comfyClass === "AGSoftLoadVideo" || n.comfyClass === "AGSoftLoadAudio")) {
+        const cls = ((n && n.comfyClass) || "") + " " + ((n && n.title) || "");
+        if (n && /LoadVideo|LoadAudio/i.test(cls)) {
             return;
         }
 
@@ -148,33 +174,37 @@ const bindWorkflowDrop = () => {
 
         console.log("[AGSoft Video Save] video drop intercepted:", file.name);
 
-        (async () => {
-            try {
-                const body = new FormData();
-                body.append("file", file, file.name);
-
-                const resp = await fetch(api.apiURL("/agsoft/extract_workflow"), {
-                    method: "POST",
-                    body,
-                });
-
-                if (!resp.ok) {
-                    console.warn("[AGSoft Video Save] extract_workflow HTTP", resp.status);
-                    return;
-                }
-
+    (async () => {
+        let wf = null;
+        try {
+            const body = new FormData();
+            body.append("file", file, file.name);
+            const resp = await fetch(api.apiURL("/agsoft/extract_workflow"), {
+                method: "POST",
+                body,
+            });
+            if (resp.ok) {
                 const data = await resp.json();
-                const wf = unwrapWorkflow(data && data.workflow);
-                console.log("[AGSoft Video Save] extracted workflow:", !!wf);
-
-                if (wf && app.loadGraphData) {
-                    await app.loadGraphData(wf);
-                    console.log("[AGSoft Video Save] workflow loaded from", file.name);
-                }
-            } catch (err) {
-                console.warn("[AGSoft Video Save] workflow restore failed:", err);
+                wf = unwrapWorkflow(data && data.workflow);
+            } else {
+                console.warn("[AGSoft Video Save] extract_workflow HTTP", resp.status);
             }
-        })();
+        } catch (err) {
+            console.warn("[AGSoft Video Save] workflow restore failed:", err);
+        }
+        console.log("[AGSoft Video Save] extracted workflow:", !!wf);
+        if (wf && app.loadGraphData) {
+            // Воркфлоу есть — грузим его; drop остаётся перехваченным.
+            await app.loadGraphData(wf);
+            console.log("[AGSoft Video Save] workflow loaded from", file.name);
+        } else {
+            // Воркфлоу нет (видео из другой программы, avi, сбой парса,
+            // ошибка сервера) — передаём drop ComfyUI: сработает её штатная
+            // обработка, файл больше не «умирает» в браузере.
+            console.warn("[AGSoft Video Save] no embedded workflow in", file.name, "-> passthrough to ComfyUI");
+            passthroughDrop(e, file);
+        }
+    })();
     }, true);
 };
 
