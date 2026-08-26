@@ -459,6 +459,12 @@ class AGSoft_Crop_Stitch:
         x, y, w, h = int(crop_data["x"]), int(crop_data["y"]), int(crop_data["w"]), int(crop_data["h"])
         device = crop_data.get("device", original.device)
         inp = image[0]
+        # Ограничиваем координаты размерами оригинального изображения
+        orig_h, orig_w = original.shape[1], original.shape[2]
+        x = max(0, min(x, orig_w - 1))
+        y = max(0, min(y, orig_h - 1))
+        w = min(w, orig_w - x)
+        h = min(h, orig_h - y)
         # Авто-ресайз обработанного кадра к размеру бокса.
         if inp.shape[0] != h or inp.shape[1] != w:
             inp = _resize_tensor(inp, w, h, "lanczos")
