@@ -1,0 +1,47 @@
+# === ГЛОБАЛЬНОЕ ПРАВИЛО ===
+# Все текстовые файлы — авто-определение, Windows-переносы
+* text=auto eol=crlf
+
+# === КОД И СТИЛИ ===
+*.py   text eol=crlf
+*.js   text eol=crlf
+*.ts   text eol=crlf
+*.html text eol=crlf
+*.css  text eol=crlf
+
+# === КОНФИГИ, ДАННЫЕ, ДОКУМЕНТАЦИЯ ===
+*.json text eol=crlf
+*.toml text eol=crlf
+*.yaml text eol=crlf
+*.yml  text eol=crlf
+*.md   text eol=crlf
+*.txt  text eol=crlf
+*.csv  text eol=crlf
+
+# === ИСКЛЮЧЕНИЯ ===
+*.sh   text eol=lf    # CRLF ломает shell-скрипты
+*.bat  text eol=crlf  # bat работает только с CRLF
+*.svg  text eol=crlf  # SVG — это текст, не binary
+
+# === БИНАРНИКИ (Гит не трогает, не диффит) ===
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.webp   binary
+*.ico    binary
+*.ttf    binary
+*.woff   binary
+*.woff2  binary
+*.zip    binary
+*.pdf    binary
+*.exe    binary
+*.dll    binary
+*.sqlite binary
+*.db     binary
+*.npy    binary
+*.npz    binary
+*.pkl    binary
+*.pth    binary
+*.pt     binary
+*.onnx   binary
