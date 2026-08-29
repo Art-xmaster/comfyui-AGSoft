@@ -2,7 +2,7 @@
 # AGSoft_Video_Save.py
 # ==============================================================================
 # Node: 🎬AGSoft Video Save
-# Version: v32.01
+# Version: v3.01
 #
 # Saves video from an image sequence OR converts an existing video.
 # It saves ONLY what is enabled: video without audio, video with audio,
@@ -50,7 +50,7 @@
 # ---
 #
 # Нода: 🎬AGSoft Video Save
-# Версия: v32.01
+# Версия: v3.01
 #
 # Сохраняет видео из последовательности изображений ИЛИ конвертирует
 # существующее видео.
@@ -165,7 +165,7 @@ except ImportError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-print("[AGSoft Video Save] v32.00 loaded (fixed hangs, faster encoding, one-pass audio, no double embed, safe async endpoints)")
+# print("[AGSoft Video Save] v3.01 loaded (fixed hangs, faster encoding, one-pass audio, no double embed, safe async endpoints)")
 
 
 # ------------------------------------------------------------------------------
