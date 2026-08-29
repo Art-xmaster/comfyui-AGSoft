@@ -32,7 +32,7 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
-console.log("[AGSoft Video Save] JS extension loaded v32.01 (preview layout sync, scoped revive, no double embed, safer drop restore)");
+console.log("[AGSoft Video Save] JS extension loaded v3.01 (preview layout sync, scoped revive, no double embed, safer drop restore)");
 
 // ------------------------------------------------------------------------------
 // Контейнеры, где браузер может не сыграть звук — используем живой транскод.
