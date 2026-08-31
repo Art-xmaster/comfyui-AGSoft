@@ -46,7 +46,7 @@ import torch
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-print("[AGSoft MiniMax H3 Cache] v1.00 loaded (dual-stream relative delta metric, audio veto, profiles, safe wrapper)")
+#print("[AGSoft MiniMax H3 Cache] v1.00 loaded (dual-stream relative delta metric, audio veto, profiles, safe wrapper)")
 
 # ------------------------------------------------------------------------------
 # Versioned profiles with calibrated thresholds on the sampled-relative-delta
@@ -114,10 +114,51 @@ def _cached_forward(self, x, timestep, context, transformer_options=None, minima
     Прозрачная обёртка над MiniMaxH3Model._forward с двухпотоковым кэшем.
     """
     orig = self._agsoft_orig_forward
-    st = self._agsoft_state
 
     if transformer_options is None:
         transformer_options = {}
+    # Use state from the model instance directly.
+    # Используем состояние напрямую из экземпляра модели.
+    if not hasattr(self, '_agsoft_state'):
+        return orig(
+            x, timestep, context,
+            transformer_options=transformer_options,
+            minimax_payload=minimax_payload,
+            **kwargs,
+        )
+    
+    st = self._agsoft_state
+    
+    # Check if we should skip caching entirely for this step.
+    # We can use a flag in transformer_options to disable cache for specific steps if needed,
+    # but for bypass handling, we rely on the fact that apply_cache sets up the state.
+    # If the node is bypassed, apply_cache is not called, but the patch remains.
+    # To handle bypass, we need to know if the current graph execution includes this node.
+    # Since we can't easily know that, we'll assume that if 'agsoft_cache_state' is NOT in 
+    # transformer_options, then the node might be bypassed or the options were lost.
+    # HOWEVER, since we removed the injection into transformer_options in the previous step? 
+    # No, we added it. Let's check if it's there. If it's NOT there, it means the path 
+    # from apply_cache didn't reach here properly OR the node is bypassed.
+    
+    # Let's try a hybrid approach: prefer transformer_options marker, fallback to instance state 
+    # ONLY if we are sure the node is active. But we don't know that.
+    
+    # Let's stick to the transformer_options marker as the source of truth for "liveness".
+    # If the marker is missing, we assume bypass and skip caching logic.
+    live_marker = transformer_options.get("agsoft_cache_state", None)
+    if live_marker is None:
+        # Node is likely bypassed or options were stripped. Run original.
+        return orig(
+            x, timestep, context,
+            transformer_options=transformer_options,
+            minimax_payload=minimax_payload,
+            **kwargs,
+        )
+    
+    # If we are here, the node is active. Use the state from the instance.
+    # This ensures we always have the latest state from apply_cache.
+    st = self._agsoft_state
+
 
     def call_original():
         # IMPORTANT: orig is a BOUND method — NO explicit self here.
@@ -559,6 +600,12 @@ class AGSoftMiniMaxH3Cache:
             "avg_run": 0.0,
             "summarized": False,
         }
+        m.model_options = dict(m.model_options)
+        m.model_options["transformer_options"] = dict(
+            m.model_options.get("transformer_options", {})
+        )
+        m.model_options["transformer_options"]["agsoft_cache_state"] = dm._agsoft_state
+
         logger.info(
             f"[AGSoft MiniMax H3 Cache] {src}: v_thr={v_thr:.4f}, a_thr={a_thr:.4f}, "
             f"window=[{min(start_p, end_p):.2f}, {max(start_p, end_p):.2f}], warmup={warmup}, "
