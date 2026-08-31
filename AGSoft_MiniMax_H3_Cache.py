@@ -128,23 +128,8 @@ def _cached_forward(self, x, timestep, context, transformer_options=None, minima
         )
     
     st = self._agsoft_state
+
     
-    # Check if we should skip caching entirely for this step.
-    # We can use a flag in transformer_options to disable cache for specific steps if needed,
-    # but for bypass handling, we rely on the fact that apply_cache sets up the state.
-    # If the node is bypassed, apply_cache is not called, but the patch remains.
-    # To handle bypass, we need to know if the current graph execution includes this node.
-    # Since we can't easily know that, we'll assume that if 'agsoft_cache_state' is NOT in 
-    # transformer_options, then the node might be bypassed or the options were lost.
-    # HOWEVER, since we removed the injection into transformer_options in the previous step? 
-    # No, we added it. Let's check if it's there. If it's NOT there, it means the path 
-    # from apply_cache didn't reach here properly OR the node is bypassed.
-    
-    # Let's try a hybrid approach: prefer transformer_options marker, fallback to instance state 
-    # ONLY if we are sure the node is active. But we don't know that.
-    
-    # Let's stick to the transformer_options marker as the source of truth for "liveness".
-    # If the marker is missing, we assume bypass and skip caching logic.
     live_marker = transformer_options.get("agsoft_cache_state", None)
     if live_marker is None:
         # Node is likely bypassed or options were stripped. Run original.
