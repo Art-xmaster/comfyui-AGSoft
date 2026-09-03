@@ -591,7 +591,7 @@ const collapse = (w) => {
 
 const hookCallback = (w, fn) => {
     if (!w) return;
-    const oc = w.callback ? w.callback.bind(w) : null;
+    const oc = w.callback ? w.callback["bind"](w) : null;
     w.callback = (v) => {
         if (oc) oc(v);
         fn(v);

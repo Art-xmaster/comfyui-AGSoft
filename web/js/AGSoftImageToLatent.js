@@ -77,7 +77,7 @@ app.registerExtension({
                             const { origin_id, origin_slot } = savedConnections[inputName];
                             const originNode = node.graph.getNodeById(origin_id);
                             if (originNode) {
-                                originNode.connect(origin_slot, node, inputName);
+                                originNode["connect"](origin_slot, node, inputName);
                             }
                         }
                     }

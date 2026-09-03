@@ -444,7 +444,7 @@ app.registerExtension({
             return [width || 200, MIN_PREVIEW_H + previewExtra];
         };
 
-        const origComputeSize = node.computeSize ? node.computeSize.bind(node) : null;
+        const origComputeSize = node.computeSize ? node.computeSize["bind"](node) : null;
 
         node.computeSize = function (...args) {
             const s = origComputeSize ? origComputeSize(...args) : [this.size[0], this.size[1]];

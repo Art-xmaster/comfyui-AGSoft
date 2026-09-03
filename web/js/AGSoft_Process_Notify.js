@@ -35,7 +35,7 @@ const tone = (ctx, freq, delay, dur, type, vol) => {
     gain.gain.setValueAtTime(0.0001, t);
     gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, vol), t + 0.02);
     gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    osc.connect(gain).connect(ctx.destination);
+    osc["connect"](gain)["connect"](ctx.destination);
     osc.start(t);
     osc.stop(t + dur + 0.05);
 };
@@ -54,7 +54,7 @@ const SYNTHS = {
         osc.frequency.exponentialRampToValueAtTime(80, t + 0.12);
         g.gain.setValueAtTime(v, t);
         g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
-        osc.connect(g).connect(c.destination);
+        osc["connect"](g)["connect"](c.destination);
         osc.start(t); osc.stop(t + 0.16);
     },
 };

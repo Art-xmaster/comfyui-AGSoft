@@ -218,7 +218,7 @@ app.registerExtension({
 
         // Минимальная высота ноды НЕ включает extra → ноду можно сжимать вверх.
         // Minimum node height does NOT include extra → node can be compressed upward.
-        const origComputeSize = node.computeSize ? node.computeSize.bind(node) : null;
+        const origComputeSize = node.computeSize ? node.computeSize["bind"](node) : null;
 
         node.computeSize = function (...args) {
             const s = origComputeSize ? origComputeSize(...args) : [this.size[0], this.size[1]];
@@ -451,7 +451,7 @@ app.registerExtension({
 
                     const body = new FormData();
                     body.append("file", file, file.name);
-                    xhr.send(body);
+                    xhr["send"](body);
                 } catch (e) {
                     console.error("[AGSoft Load Video] upload error:", e);
                     btn.textContent = "Upload Error! See F12";
