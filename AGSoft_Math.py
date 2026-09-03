@@ -271,7 +271,7 @@ class AGSoftMathExpression(AGSoftBaseNode):
     @classmethod
     def _get_safe_globals(cls) -> Dict[str, Any]:
         """
-        Возвращает безопасный словарь глобальных функций для eval().
+        Возвращает безопасный словарь глобальных функций for the safe expression evaluator.
         
         Returns:
             Словарь с разрешёнными математическими функциями и константами
@@ -304,6 +304,70 @@ class AGSoftMathExpression(AGSoftBaseNode):
             'inf': float('inf'),
         }
         return safe_dict
+
+    @classmethod
+    def _safe_eval_ast(cls, expression: str, variables: Dict[str, float]) -> float:
+        """
+        Безопасное вычисление выражения через модуль ast (без опасной встроенной функции).
+        Поддерживает: числа, переменные, операторы + - * / // % **,
+        унарные +/-, сравнения и вызовы функций из белого списка (sqrt, sin, ...).
+        """
+        import ast as _ast
+        import operator as _op
+
+        names = cls._get_safe_globals()
+        names.update(variables)
+
+        bin_ops = {
+            _ast.Add: _op.add, _ast.Sub: _op.sub, _ast.Mult: _op.mul,
+            _ast.Div: _op.truediv, _ast.FloorDiv: _op.floordiv,
+            _ast.Mod: _op.mod, _ast.Pow: _op.pow,
+        }
+        un_ops = {_ast.UAdd: _op.pos, _ast.USub: _op.neg}
+        cmp_ops = {
+            _ast.Eq: lambda x, y: x == y, _ast.NotEq: lambda x, y: x != y,
+            _ast.Lt: lambda x, y: x < y, _ast.LtE: lambda x, y: x <= y,
+            _ast.Gt: lambda x, y: x > y, _ast.GtE: lambda x, y: x >= y,
+        }
+
+        def go(n):
+            if isinstance(n, _ast.Expression):
+                return go(n.body)
+            if isinstance(n, _ast.Constant):
+                if isinstance(n.value, (int, float)) and not isinstance(n.value, bool):
+                    return float(n.value)
+                raise ValueError("Unsupported constant")
+            if isinstance(n, _ast.Name):
+                if n.id in names:
+                    return float(names[n.id])
+                raise NameError(f"name '{n.id}' is not defined")
+            if isinstance(n, _ast.BinOp):
+                if type(n.op) in bin_ops:
+                    return bin_ops[type(n.op)](go(n.left), go(n.right))
+                raise ValueError("Unsupported operator")
+            if isinstance(n, _ast.UnaryOp):
+                if type(n.op) in un_ops:
+                    return un_ops[type(n.op)](go(n.operand))
+                raise ValueError("Unsupported unary operator")
+            if isinstance(n, _ast.Compare):
+                left = go(n.left)
+                for op_node, comp in zip(n.ops, n.comparators):
+                    if type(op_node) not in cmp_ops:
+                        raise ValueError("Unsupported comparison")
+                    right = go(comp)
+                    if not cmp_ops[type(op_node)](left, right):
+                        return 0.0
+                    left = right
+                return 1.0
+            if isinstance(n, _ast.Call):
+                if (isinstance(n.func, _ast.Name) and n.func.id in names
+                        and callable(names[n.func.id]) and not n.keywords):
+                    return float(names[n.func.id](*[go(a) for a in n.args]))
+                raise ValueError("Unsupported function call")
+            raise ValueError("Unsupported expression element")
+
+        return go(_ast.parse(expression, mode="eval"))
+
     
     def evaluate_expression(self, 
                            expression: str, 
@@ -388,7 +452,7 @@ class AGSoftMathExpression(AGSoftBaseNode):
             
             # Вычисляем выражение в безопасной среде
             # Используем ограниченный globals и словарь locals
-            result = eval(clean_expression, safe_globals, locals_dict)
+            result = self._safe_eval_ast(clean_expression, locals_dict)
             
             # Преобразуем результат в float
             result_float = float(result)
