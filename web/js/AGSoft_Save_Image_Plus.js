@@ -20,10 +20,18 @@
 //   видны СРАЗУ после добавления ноды, растягивать вручную не нужно.
 //   Initial node height = widgets height + 320px for the preview — images are
 //   visible IMMEDIATELY after adding the node, no manual stretching needed.
-// ⚡ Превью сохраняется в node.properties → переживает перезагрузку воркфлоу.
-//   The preview is stored in node.properties → survives workflow reloads.
-// ⚡ Ресайз ноды не тронут (клик перехватывается ТОЛЬКО по кнопкам Save).
-//   Node resize untouched (clicks intercepted ONLY over the Save buttons).
+// ⚡ Ресайз ноды не тронут (клик перехватывается ТОЛЬКО по кнопкам панели).
+//   Node resize untouched (clicks intercepted ONLY over the panel buttons).
+// ⚡ Строка размера W × H под каждым превью (как в Preview Image).
+//   A W × H size line under each preview (like in Preview Image).
+// ⚡ Панель кнопок над каждым превью: [💾 Save][📂][][⬇] — сохранить в
+//   output / открыть в новой вкладке / копировать в буфер / скачать через
+//   браузер (Save As в любую папку).
+//   Button row over each preview: save to output / open in a new tab /
+//   copy to clipboard / download via browser (Save As to any folder).
+// ⚡ Правый клик по превью — меню как в Preview Image:
+//   Open Image / Copy Image / Save Image + Save to output.
+//   Right-click over a preview — menu like Preview Image.
 //
 // JS extension for the 🖼️AGSoft Save Image Plus node.
 // (See the RU list above — the same features.)
@@ -32,7 +40,7 @@
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
-// console.log("[AGSoft Save Image Plus] JS extension loaded v20.08 (style header + batch preview + Save now over each image)");
+// console.log("[AGSoft Save Image Plus] JS extension loaded v20.08.2 (size label + open/copy/download buttons + context menu)");
 
 // ------------------------------------------------------------------------------
 // Простой toast (для показа пути после сохранения).
@@ -77,7 +85,9 @@ app.registerExtension({
         // Cell layout for hit-testing.
         node._agsoft_layout = [];
 
-        const BTN_H = 18;
+        const BTN_H = 18;   // высота панели кнопок / button row height
+        const ICON_W = 22;  // ширина маленьких кнопок 📂📋⬇ / small buttons width
+        const FOOT_H = 14;  // высота строки размера W×H / size label height
 
         // ------------------------------------------------------------------
         // Чтение настроек виджетов (для Save).
@@ -142,6 +152,74 @@ app.registerExtension({
             } catch (err) {
                 console.warn("[AGSoft Save Image Plus] save_now error:", err);
                 showToast(`Save failed: ${err.message}`, true);
+            }
+        };
+
+
+        // ------------------------------------------------------------------
+        // Ссылка /view для entry (превью и все браузерные действия).
+        // /view URL for an entry (previews and all browser actions).
+        // ------------------------------------------------------------------
+        const viewURL = (entry) => {
+            const params = new URLSearchParams({
+                filename: entry.filename,
+                type: entry.type || "temp",
+                subfolder: entry.subfolder || "",
+            });
+            return api.apiURL("/view?" + params.toString());
+        };
+        // 📂 Open: открыть превью в новой вкладке браузера.
+        // Open the preview in a new browser tab.
+        const openEntry = (item) => {
+            if (!item || !item.entry || !item.entry.filename) {
+                showToast("No preview to open.", true);
+                return;
+            }
+            window.open(viewURL(item.entry), "_blank");
+        };
+        // 📋 Copy: скопировать PNG в буфер обмена (как Copy Image в Preview Image).
+        // Copy PNG to clipboard (like Copy Image in Preview Image).
+        const copyEntry = async (item) => {
+            if (!item || !item.entry || !item.entry.filename) {
+                showToast("No preview to copy.", true);
+                return;
+            }
+            try {
+                if (!navigator.clipboard || typeof ClipboardItem === "undefined") {
+                    throw new Error("Clipboard API unavailable");
+                }
+                const resp = await fetch(viewURL(item.entry));
+                const blob = await resp.blob();
+                await navigator.clipboard.write([
+                    new ClipboardItem({ [blob.type || "image/png"]: blob }),
+                ]);
+                showToast("Image copied to clipboard.");
+            } catch (err) {
+                showToast(`Copy failed: ${err.message}`, true);
+            }
+        };
+        // ⬇ Download: скачать через браузер (Save As в любую папку),
+        // как Save Image в Preview Image.
+        // Download via browser (Save As to any folder), like Save Image.
+        const downloadEntry = async (item) => {
+            if (!item || !item.entry || !item.entry.filename) {
+                showToast("No preview to download.", true);
+                return;
+            }
+            try {
+                const resp = await fetch(viewURL(item.entry));
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = item.entry.filename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 5000);
+                showToast("Download started.");
+            } catch (err) {
+                showToast(`Download failed: ${err.message}`, true);
             }
         };
 
@@ -243,14 +321,30 @@ app.registerExtension({
             for (let i = 0; i < n; i++) {
                 const cx = areaX + (i % cols) * cw;
                 const cy = areaY + Math.floor(i / cols) * ch;
-
+                // В узких ячейках оставляем только [💾 Save] на всю ширину.
+                // In narrow cells keep only the full-width [💾 Save].
+                const showIcons = cw >= 110;
+                const bx = cx + 3, by = cy + 3;
+                let x = bx;
+                const save = [x, by, showIcons ? Math.max(24, cw - 6 - (3 * ICON_W + 6)) : cw - 6, BTN_H];
+                x += save[2] + 2;
+                const open = showIcons ? [x, by, ICON_W, BTN_H] : [0, 0, 0, 0];
+                if (showIcons) x += ICON_W + 2;
+                const copy = showIcons ? [x, by, ICON_W, BTN_H] : [0, 0, 0, 0];
+                if (showIcons) x += ICON_W + 2;
+                const dl = showIcons ? [x, by, ICON_W, BTN_H] : [0, 0, 0, 0];
+                // Строка размера снизу ячейки (как в Preview Image).
+                // Size footer at the bottom of the cell (like Preview Image).
+                const foot = [cx + 3, cy + ch - 3 - FOOT_H, cw - 6, FOOT_H];
+                const imgY = by + BTN_H + 2;
+                const imgH = Math.max(4, foot[1] - 2 - imgY);
                 layout.push({
                     index: i,
-                    btn: [cx + 3, cy + 3, cw - 6, BTN_H],
-                    imgArea: [cx + 3, cy + 3 + BTN_H + 2, cw - 6, Math.max(4, ch - BTN_H - 8)],
+                    btn: save, open, copy, dl,
+                    imgArea: [cx + 3, imgY, cw - 6, imgH],
+                    foot,
                 });
             }
-
             return layout;
         };
 
@@ -280,7 +374,6 @@ app.registerExtension({
 
                     const [bx, by, bw, bh] = cell.btn;
                     const flashed = item.flash && (now - item.flash < 1500);
-
                     ctx.fillStyle = flashed ? "#3b7" : "#2a6";
                     ctx.fillRect(bx, by, bw, bh);
                     ctx.fillStyle = "#fff";
@@ -292,7 +385,20 @@ app.registerExtension({
                         bx + bw / 2,
                         by + bh / 2 + 0.5
                     );
-
+                    // [📂][📋][⬇] — маленькие кнопки справа от Save.
+                    // [📂][📋][] — small buttons to the right of Save.
+                    const icons = [
+                        [cell.open, "📂"],
+                        [cell.copy, "📋"],
+                        [cell.dl, "⬇"],
+                    ];
+                    for (const [r, glyph] of icons) {
+                        if (!r || r[2] <= 0) continue; // скрыты в узких ячейках
+                        ctx.fillStyle = "#3a3f4a";
+                        ctx.fillRect(r[0], r[1], r[2], r[3]);
+                        ctx.fillStyle = "#fff";
+                        ctx.fillText(glyph, r[0] + r[2] / 2, r[1] + r[3] / 2 + 0.5);
+                    }
                     const [ix, iy, iw, ih] = cell.imgArea;
 
                     ctx.fillStyle = "#111";
@@ -313,8 +419,21 @@ app.registerExtension({
                             h
                         );
                     }
+                    // Строка размера W×H снизу ячейки (как в Preview Image).
+                    // W×H size footer at the bottom (like Preview Image).
+                    const [fx, fy, fw, fh] = cell.foot;
+                    ctx.fillStyle = "#1b1e24";
+                    ctx.fillRect(fx, fy, fw, fh);
+                    const W = (item.img && item.img.naturalWidth) || item.entry.width || 0;
+                    const H = (item.img && item.img.naturalHeight) || item.entry.height || 0;
+                    ctx.fillStyle = "#9aa4b2";
+                    ctx.font = "9px sans-serif";
+                    ctx.fillText(
+                        W && H ? `${W} × ${H}` : "—",
+                        fx + fw / 2,
+                        fy + fh / 2 + 0.5
+                    );
                 }
-
                 ctx.restore();
             } catch (e) {
                 // Никогда не ломаем отрисовку/взаимодействие ноды.
@@ -326,29 +445,96 @@ app.registerExtension({
         // Hit-test кнопок Save. Перехватываем клик ТОЛЬКО по кнопкам.
         // Save button hit-testing. We intercept clicks ONLY over the buttons.
         // ------------------------------------------------------------------
-        const hitButton = (pos) => {
+        const hitAction = (pos) => {
             const layout = node._agsoft_layout || [];
             for (const cell of layout) {
-                const [bx, by, bw, bh] = cell.btn;
-                if (pos[0] >= bx && pos[0] <= bx + bw &&
-                    pos[1] >= by && pos[1] <= by + bh) {
+                const zones = [
+                    [cell.btn, "save"], [cell.open, "open"],
+                    [cell.copy, "copy"], [cell.dl, "dl"],
+                ];
+                for (const [r, action] of zones) {
+                    if (r[2] > 0 &&
+                        pos[0] >= r[0] && pos[0] <= r[0] + r[2] &&
+                        pos[1] >= r[1] && pos[1] <= r[1] + r[3]) {
+                        return { index: cell.index, action };
+                    }
+                }
+            }
+            return null;
+        };
+        // Ячейка целиком (кнопки+превью+строка размера) — для правого клика.
+        // Whole cell (buttons+preview+size line) — for the right-click menu.
+        const hitCell = (pos) => {
+            const layout = node._agsoft_layout || [];
+            for (const cell of layout) {
+                const left = cell.btn[0];
+                const right = cell.imgArea[0] + cell.imgArea[2];
+                const top = cell.btn[1];
+                const bot = cell.foot[1] + cell.foot[3];
+                if (pos[0] >= left && pos[0] <= right && pos[1] >= top && pos[1] <= bot) {
                     return cell.index;
                 }
             }
             return -1;
         };
-
         const origMouseDown = node.onMouseDown;
         node.onMouseDown = function (e, pos, canvas) {
-            const idx = hitButton(pos);
-            if (idx >= 0) {
-                const item = (node._agsoft_items || [])[idx];
-                if (item) saveEntry(item);
+            const hit = hitAction(pos);
+            if (hit) {
+                const item = (node._agsoft_items || [])[hit.index];
+                if (item) {
+                    if (hit.action === "save") saveEntry(item);
+                    else if (hit.action === "open") openEntry(item);
+                    else if (hit.action === "copy") copyEntry(item);
+                    else if (hit.action === "dl") downloadEntry(item);
+                }
                 return true; // не тащим ноду за кнопку / don't drag the node by the button
             }
             if (origMouseDown) return origMouseDown.apply(this, arguments);
             return false;
         };
+        // Pointer-курсор над любой кнопкой панели.
+        // Pointer cursor over any panel button.
+        const origMouseMove = node.onMouseMove;
+        node.onMouseMove = function (e, pos, canvas) {
+            const over = !!hitAction(pos);
+            const el = canvas && canvas.canvas;
+            if (el) {
+                if (over) { el.style.cursor = "pointer"; node._agsoft_pointer = true; }
+                else if (node._agsoft_pointer) { el.style.cursor = ""; node._agsoft_pointer = false; }
+            }
+            if (origMouseMove) return origMouseMove.apply(this, arguments);
+            return false;
+        };
+        // Контекстное меню как в Preview Image (правый клик по превью).
+        // Context menu like Preview Image (right-click over a preview).
+        const origMenu = node.getExtraMenuOptions;
+        node.getExtraMenuOptions = function (graphcanvas, options) {
+            const items = node._agsoft_items || [];
+            const gm = (graphcanvas && graphcanvas.graph_mouse) ||
+                       (app.canvas && app.canvas.graph_mouse) || null;
+            let idx = -1;
+            if (gm) idx = hitCell([gm[0] - this.pos[0], gm[1] - this.pos[1]]);
+            if (idx >= 0 && items[idx]) {
+                const it = items[idx];
+                const num = idx + 1;
+                options.unshift(
+                    { content: `📂 Open Image #${num} (new tab)`, callback: () => openEntry(it) },
+                    { content: `📋 Copy Image #${num}`, callback: () => copyEntry(it) },
+                    { content: `⬇ Save Image #${num} (browser Save As)`, callback: () => downloadEntry(it) },
+                    { content: `💾 Save #${num} to output`, callback: () => saveEntry(it) },
+                    null
+                );
+            } else if (items.length) {
+                options.push(null, {
+                    content: "ℹ Right-click over a preview: Open/Copy/Save",
+                    disabled: true,
+                });
+            }
+            if (origMenu) return origMenu.apply(this, arguments);
+            return options;
+        };
+
 
         // ------------------------------------------------------------------
         // Стартовый размер: ширина 320, высота = виджеты + 320px под превью.
