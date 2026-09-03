@@ -66,16 +66,23 @@
 # ⚡ Адаптивная сетка превью на канвасе, вписывается в размер ноды (JS).
 #   Adaptive canvas preview grid fitted into the node size (JS).
 # ⚡ OUTPUT_NODE=True, IS_CHANGED, VALIDATE_INPUTS.
-#   OUTPUT_NODE=True, IS_CHANGED, VALIDATE_INPUTS.
+#    OUTPUT_NODE=True, IS_CHANGED, VALIDATE_INPUTS.
+# ⚡ Строка размера W×H под каждым превью + кнопки 📂/📋/⬇ и правый клик
+#    (Open/Copy/Save Image) как в Preview Image.
+#    W×H size line under each preview + 📂//⬇ buttons and right-click menu
+#    (Open/Copy/Save Image) like Preview Image.
+# ⚡ Уникальные temp-имена (uuid) — превью корректны при нескольких нодах.
+#    Unique temp names (uuid) — previews stay correct with several nodes.
 #
 # Автор / Author: AGSoft
-# Дата / Date: 20.08.2026
+# Дата / Date: 03.09.2026
 # ==============================================================================
 
 import os
 import re
 import json
 import time
+import uuid
 import logging
 from datetime import datetime
 from PIL import Image
@@ -93,7 +100,7 @@ logger = logging.getLogger(__name__)
 
 # Маркер версии: если этой строки нет в консоли после старта — файл не применился.
 # Version marker: if this line is not in console after startup — file was not applied.
-# print("[AGSoft Save Image Plus] v20.08 loaded (style header + bilingual tooltips + batch preview + Save now over each image)")
+# print("[AGSoft Save Image Plus] v20.08.2 loaded (size label + open/copy/download + unique temp names for multi-node workflows)")
 
 # ------------------------------------------------------------------------------
 # Форматы и их параметры по умолчанию.
@@ -522,6 +529,9 @@ class AGSoftSaveImagePlus:
         "for batches) — like AGSoft Image & Mask Resize Plus.\n"
         "PNG/JPG/WebP/BMP with per-format compression/quality, subfolders, dated subfolder, "
         "workflow embedding (PNG tEXt / separate .json for others).\n"
+        "W×H size line under each preview; [📂][][⬇] buttons over the preview and right-"
+        "click menu (Open/Copy/Save Image) like Preview Image; unique temp names keep previews "
+        "correct with several saver nodes in one workflow.\n"
         "---\n"
         "🖼️💾 AGSoft Save Image Plus.\n"
         "Расширенная нода сохранения с ПРЕВЬЮ ВСЕГО БАТЧА в ноде и кнопкой 'Save now' НАД "
@@ -532,7 +542,10 @@ class AGSoftSaveImagePlus:
         "Выходы: IMAGE (прокидывается), width, height, filename, saved_path (для батча — через "
         "запятую) — как в AGSoft Image & Mask Resize Plus.\n"
         "PNG/JPG/WebP/BMP с раздельным сжатием/качеством, подпапки, подпапка с датой, вшивание "
-        "workflow (PNG tEXt / отдельный .json для остальных)."
+        "workflow (PNG tEXt / отдельный .json для остальных).\n"
+        "строка размера W×H под каждым превью; кнопки [📂][][⬇] над превью и правый клик "
+        "по превью (Open Image / Copy Image / Save Image) как в Preview Image; уникальные temp-"
+        "имена — превью корректны при нескольких нодах в одном воркфлоу.\n"
     )
 
     def save_image_plus(
@@ -592,16 +605,23 @@ class AGSoftSaveImagePlus:
             # ------------------------------------------------------------------
             for i in range(batch_size):
                 pil = _tensor_to_pil(images[i])
+                w_i, h_i = pil.size
                 if i == 0:
                     first_w, first_h = pil.size
-
-                temp_name = f"agsoft_imgplus_{ts}_{i:03d}.png"
+                # Уникальное имя (uuid): несколько нод Save Image Plus в одном
+                # воркфлоу больше не перезаписывают temp-превью друг друга, и
+                # браузер не отдаёт закэшированную картинку "от первой ноды".
+                # Unique name (uuid): several saver nodes in one workflow no
+                # longer overwrite each other's temp previews, and the browser
+                # never serves a stale cached image "from the first node".
+                temp_name = f"agsoft_imgplus_{ts}_{uuid.uuid4().hex[:8]}_{i:03d}.png"
                 temp_path = os.path.join(tmp_dir, temp_name)
                 pil.save(temp_path, "PNG")
 
                 saved_path = ""
                 saved_name = ""
                 if save_image:
+
                     saved_path = _perform_save(
                         pil, out_dir, filename_prefix, fmt, quality,
                         embed_workflow, prompt, extra_pnginfo,
@@ -617,6 +637,8 @@ class AGSoftSaveImagePlus:
                     "subfolder": "",
                     "type": "temp",
                     "index": i,
+                    "width": w_i,
+                    "height": h_i,
                     "saved_filename": saved_name,
                     "saved_path": saved_path,
                 })
