@@ -633,7 +633,7 @@ NODE_CLASS_MAPPINGS = {
 
 # Словарь для отображения красивых имен нод в интерфейсе ComfyUI.
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "AGSoft Text Multiline": "AGSoft Text Multiline",
+    "AGSoft Text Multiline": "📝AGSoft Text Multiline",
     "AGSoft Text Replace": "AGSoft Text Replace",
     "AGSoft Text Operation": "AGSoft Text Operation",
     "AGSoft Text Input Switch X2": "AGSoft Text Input Switch X2",

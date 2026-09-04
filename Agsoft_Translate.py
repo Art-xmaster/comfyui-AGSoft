@@ -1,5 +1,5 @@
 """
-# AGSoft Translate
+# 🌐AGSoft Translate
 # Автор: AGSoft
 # Дата: 28.12.2025 г.
 """
@@ -231,7 +231,7 @@ class AgsoftTranslate:
     
     CATEGORY = "AGSoft/Text"
     
-    DESCRIPTION = """Advanced Text Translation Node
+    DESCRIPTION = """🌐Advanced Text Translation Node
     Features:
     - Multiple translation services (Google, Bing, Yandex, DeepL, etc.)
     - 80+ languages with bilingual names
@@ -240,7 +240,7 @@ class AgsoftTranslate:
     - Service information display
     - Automatic fallback on errors
     
-    Усовершенствованная нода перевода текста
+🌐Усовершенствованная нода перевода текста
     Особенности:
     - Множество сервисов перевода (Google, Bing, Yandex, DeepL и др.)
     - 80+ языков с двуязычными названиями
@@ -675,7 +675,7 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "AgsoftTranslate": "AGSoft Translate",
+    "AgsoftTranslate": "🌐AGSoft Translate",
 }
 
 # For backward compatibility
