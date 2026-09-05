@@ -19,9 +19,12 @@
 *.csv  text eol=crlf
 
 # === ИСКЛЮЧЕНИЯ ===
-*.sh   text eol=lf    # CRLF ломает shell-скрипты
-*.bat  text eol=crlf  # bat работает только с CRLF
-*.svg  text eol=crlf  # SVG — это текст, не binary
+# CRLF ломает shell-скрипты
+*.sh   text eol=lf
+# bat работает только с CRLF
+*.bat  text eol=crlf
+# SVG — это текст, не binary
+*.svg  text eol=crlf
 
 # === БИНАРНИКИ (Гит не трогает, не диффит) ===
 *.png    binary
