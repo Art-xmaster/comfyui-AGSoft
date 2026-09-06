@@ -68,10 +68,6 @@ except Exception:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("AGSoftTranslatePlus")
 
-print(
-    "[AGSoft Translate Plus] v1.01 loaded "
-    "(protected fragments, default [ ] markers, cache, async batch, fallback, pre-acceleration)"
-)
 
 CACHE_LIMIT_ENTRIES = 5000
 CACHE_TRIM_ENTRIES = 1000
