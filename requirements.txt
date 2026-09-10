@@ -1,2 +1,10 @@
-# For AGSoft Translate
- translators
+# Dependencies / Зависимости
+
+# numpy: array and numerical data handling / numpy: работа с массивами и числовыми данными
+numpy>=1.26.4
+
+# opencv-python: image processing with OpenCV / opencv-python: обработка изображений через OpenCV
+opencv-python>=4.7.0.72
+
+# translators: text translation for AGSoft Translate nodes / translators: перевод текста для узлов AGSoft Translate
+translators
