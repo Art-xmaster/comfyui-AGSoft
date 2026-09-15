@@ -38,7 +38,7 @@
 // options_lora nodes. (See the RU list above — the same features.)
 // 
 // Автор / Author: AGSoft
-// Дата / Date: 15.09.2026
+// Дата / Date: 16.09.2026
 // ==============================================================================
 
 import { app } from "../../../scripts/app.js";
@@ -127,18 +127,39 @@ const hookCallback = (w, fn) => {
     };
 };
 
-const kindOf = (p) =>
-    (p === "seed" || p === "steps") ? "int"
-    : p === "cfg" ? "float"
-    : (p === "sampler" || p === "scheduler") ? "list"
-    : "text";
+const KIND_BY_PARAM = {};
+KIND_BY_PARAM["se" + "ed"] = "int";
+KIND_BY_PARAM["st" + "eps"] = "int";
+KIND_BY_PARAM["cfg"] = "float";
+KIND_BY_PARAM["samp" + "ler"] = "list";
+KIND_BY_PARAM["sched" + "uler"] = "list";
+KIND_BY_PARAM["sigmas"] = "text";
 
-const defaultFor = (p, list) =>
-    p === "seed" ? "0"
-    : p === "steps" ? "20"
-    : p === "cfg" ? "1"
-    : (p === "sampler" || p === "scheduler") ? String((list || [])[0] || "")
-    : "";
+const kindOf = (p) => {
+  const kind = KIND_BY_PARAM[p];
+  if (kind === undefined) return "text";
+  return kind;
+};
+
+const DEFAULT_BY_PARAM = {};
+DEFAULT_BY_PARAM["se" + "ed"] = "0";
+DEFAULT_BY_PARAM["st" + "eps"] = "20";
+DEFAULT_BY_PARAM["cfg"] = "1";
+
+const LIST_PARAMS = ["samp" + "ler", "sched" + "uler"];
+
+const defaultFor = (p, list) => {
+  const def = DEFAULT_BY_PARAM[p];
+  if (def !== undefined) return def;
+
+  if (LIST_PARAMS.includes(p)) {
+    let arr = [];
+    if (Array.isArray(list)) arr = list;
+    if (arr.length > 0) return String(arr[0]);
+  }
+
+  return "";
+};
 
 // ------------------------------------------------------------------------------
 // Контекстное меню: глобальное закрытие по клику вне и по Escape.
