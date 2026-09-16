@@ -209,7 +209,7 @@ def _fetch_civitai_info(lora_name):
         req = urllib.request.Request(url, headers={"User-Agent": "ComfyUI-AGSoft/1.0"})
         with urllib.request.urlopen(req, timeout=20) as resp:
             mv = json.loads(resp.read().decode("utf-8", "ignore"))
-        model = mv.get("model", {}) or {} if isinstance(mv.get("model"), dict) else {}
+        model = mv["model"] if isinstance(mv, dict) and "model" in mv and isinstance(mv["model"], dict) else {}
         # modelId may live on the version payload too
         model_id = model.get("id") if isinstance(model, dict) else None
         if not model_id:
