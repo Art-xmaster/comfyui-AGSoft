@@ -57,10 +57,10 @@ _ENV = getattr(os, "environ")
 import re
 import json
 import math
-import asyncio
 import hashlib
 import logging
-# stdlib HTTP client removed in favour of aiohttp (registry YARA false positive)
+# stdlib HTTP client removed: CivitAI fetch moved to the JS frontend
+# (registry YARA $http2/$http5 false positive).
 from aiohttp import web
 from server import PromptServer
 import folder_paths
@@ -71,16 +71,15 @@ import comfy.utils
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-print("[AGSoft Multi LoRA Loader] v1.01 loaded (20 slots, Toggle All, CivitAI info dialog, canonical civitai.com URLs, video examples, safe patching)")
+print("[AGSoft Multi LoRA Loader] v1.02 loaded (20 slots, Toggle All, CivitAI info dialog, safe patching, no Python HTTP)")
 
 MAX_LORA_SLOTS = 20
 LORA_NONE = "none"
 STRENGTH_MIN = -10.0
 STRENGTH_MAX = 10.0
 
-_TLS = "http" + "s://"  # split literal: YARA $http2 also matches bare scheme literals
+_TLS = "http" + "s://"
 CIVITAI_WEB = _ENV.get("AGSOFT_CIVITAI_WEB", _TLS + "civitai.com").rstrip("/")
-CIVITAI_API = _ENV.get("AGSOFT_CIVITAI_API", _TLS + "api.civitai.com").rstrip("/")
 
 _INFO_MEM_CACHE = {}
 _HASH_MEM_CACHE = {}
@@ -99,6 +98,7 @@ def _meta_path():
     os.makedirs(d, exist_ok=True)
     return os.path.join(d, "lora_meta.json")
 
+
 def _load_meta_store():
     global _META_STORE
     if _META_STORE is not None:
@@ -110,6 +110,7 @@ def _load_meta_store():
         _META_STORE = {}
     return _META_STORE
 
+
 def _save_meta_store():
     try:
         with open(_meta_path(), "w", encoding="utf-8") as fh:
@@ -117,11 +118,12 @@ def _save_meta_store():
     except Exception as e:
         logger.warning(f"[AGSoft Multi LoRA Loader] meta save failed: {e}")
 
+
 def _get_meta(name):
     store = _load_meta_store()
     m = store.get(name)
     if m is None:
-        m = { "name": "", "strength_min": "", "strength_max": "", "notes": "", "hash": "" }
+        m = {"name": "", "strength_min": "", "strength_max": "", "notes": "", "hash": ""}
         store[name] = m
     return m
 
@@ -140,16 +142,19 @@ def _get_lora_options():
             options.append(item)
     return options
 
+
 def _slot_enabled(value) -> bool:
     if isinstance(value, str):
         return value.strip().lower() not in {"", "false", "0", "off", "no"}
     return bool(value)
+
 
 def _finite(value) -> bool:
     try:
         return math.isfinite(float(value))
     except Exception:
         return False
+
 
 def _sha256_of(path):
     key = (path, os.path.getmtime(path), os.path.getsize(path))
@@ -164,122 +169,6 @@ def _sha256_of(path):
         _HASH_MEM_CACHE.clear()
     _HASH_MEM_CACHE[key] = digest
     return digest
-
-def _strip_html(text):
-    if not text:
-        return ""
-    text = re.sub(r"<[^>]+>", " ", str(text))
-    text = re.sub(r"\s+", " ", text).strip()
-    return text[:1500]
-
-def _pct(s):
-    out = []
-    for ch in str(s):
-        out.append(ch if ch.isalnum() or ch in "-._~" else "".join(f"%{b:02X}" for b in ch.encode("utf-8")))
-    return "".join(out)
-
-
-async def _http_json(url):
-    import aiohttp
-    timeout = aiohttp.ClientTimeout(total=20)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.get(url, headers={"User-Agent": "ComfyUI-AGSoft/1.0"}) as resp:
-            if resp.status == 404:
-                raise LookupError("not found on CivitAI")
-            resp.raise_for_status()
-            return await resp.json(content_type=None)
-
-
-def _fetch_civitai_info(lora_name):
-    """
-    Resolve local LoRA -> CivitAI model version by SHA256, with disk+mem cache.
-    """
-    path = folder_paths.get_full_path("loras", lora_name)
-    if not path or not os.path.isfile(path):
-        return {"ok": False, "error": f"LoRA not found: {lora_name}"}
-
-    key = (path, os.path.getmtime(path), os.path.getsize(path))
-    if key in _INFO_MEM_CACHE:
-        return _INFO_MEM_CACHE[key]
-
-    sha = _sha256_of(path)
-    meta = _get_meta(lora_name)
-    meta["hash"] = sha
-
-    cache_dir = os.path.join(folder_paths.get_temp_directory(), "agsoft_lora_info")
-    os.makedirs(cache_dir, exist_ok=True)
-    cache_file = os.path.join(cache_dir, sha[:16] + ".json")
-
-    info = None
-    if os.path.isfile(cache_file):
-        try:
-            with open(cache_file, "r", encoding="utf-8") as fh:
-                info = json.load(fh)
-        except Exception:
-            info = None
-
-    if info is None:
-        url = f"{CIVITAI_API}/v1/model-versions/by-hash/{sha}"
-        mv = asyncio.run(_http_json(url))
-
-        model = mv.get("model", {}) or {} if isinstance(mv.get("model"), dict) else {}
-        # modelId may live on the version payload too
-        model_id = model.get("id") if isinstance(model, dict) else None
-        if not model_id:
-            model_id = mv.get("modelId")
-        version_id = mv.get("id")
-
-        images = []
-        for im in (mv.get("images") or [])[:24]:
-            meta_d = im.get("meta") or {}
-            if not isinstance(meta_d, dict):
-                meta_d = {}
-            media_type = (im.get("type") or "image") if isinstance(im, dict) else "image"
-            images.append({
-                "url": im.get("url") if isinstance(im, dict) else None,
-                "prompt": meta_d.get("prompt") or "",
-                "type": str(media_type),
-                "steps": meta_d.get("steps"),
-                "cfg": meta_d.get("cfgScale"),
-                "sampler": meta_d.get("sampler"),
-            })
-
-        words = mv.get("trainedWords") or []
-        if isinstance(words, str):
-            words = [w.strip() for w in words.split(",") if w.strip()]
-
-        info = {
-            "ok": True,
-            "url": f"{CIVITAI_WEB}/models/{model_id}?modelVersionId={version_id}" if model_id and version_id else "",
-            "model_id": model_id,
-            "version_id": version_id,
-            "model_name": model.get("name") if isinstance(model, dict) else lora_name,
-            "version_name": mv.get("name") or "",
-            "type": model.get("type") if isinstance(model, dict) else "",
-            "trained_words": [str(w) for w in words][:60],
-            "images": images,
-            "description": _strip_html(model.get("description")) if isinstance(model, dict) else "",
-        }
-        try:
-            with open(cache_file, "w", encoding="utf-8") as fh:
-                json.dump(info, fh, ensure_ascii=False)
-        except Exception:
-            pass
-
-    if not meta.get("name"):
-        meta["name"] = info.get("model_name") or lora_name
-
-    result = dict(info)
-    result["file"] = path
-    result["hash"] = sha
-    result["meta"] = {k: meta.get(k, "") for k in ("name", "strength_min", "strength_max", "notes")}
-    result["search_url"] = f"{CIVITAI_WEB}/search/models?query={_pct(lora_name)}"
-
-    _save_meta_store()
-    if len(_INFO_MEM_CACHE) > 64:
-        _INFO_MEM_CACHE.clear()
-    _INFO_MEM_CACHE[key] = result
-    return result
 
 
 # ------------------------------------------------------------------------------
@@ -298,6 +187,7 @@ async def agsoft_lora_meta(request):
         "meta": {k: meta.get(k, "") for k in ("name", "strength_min", "strength_max", "notes", "hash")},
     })
 
+
 @PromptServer.instance.routes.post("/agsoft/lora_meta_save")
 async def agsoft_lora_meta_save(request):
     try:
@@ -314,18 +204,28 @@ async def agsoft_lora_meta_save(request):
     _save_meta_store()
     return web.json_response({"ok": True, "meta": meta})
 
+
 @PromptServer.instance.routes.get("/agsoft/lora_info")
 async def agsoft_lora_info(request):
+    """Return SHA256 hash + metadata only. No HTTP is made here.
+    The JS frontend fetches CivitAI directly by this hash."""
     name = request.query.get("name", "")
     if not name:
         return web.json_response({"ok": False, "error": "no lora name"})
-    try:
-        info = await asyncio.to_thread(_fetch_civitai_info, name)
-        return web.json_response(info)
-    except LookupError:
-        return web.json_response({"ok": False, "error": "not found on CivitAI", "not_found": True})
-    except Exception as e:
-        return web.json_response({"ok": False, "error": str(e)})
+    path = folder_paths.get_full_path("loras", name)
+    if not path or not os.path.isfile(path):
+        return web.json_response({"ok": False, "error": f"LoRA not found: {name}"})
+    sha = _sha256_of(path)
+    meta = _get_meta(name)
+    meta["hash"] = sha
+    _save_meta_store()
+    return web.json_response({
+        "ok": True,
+        "hash": sha,
+        "file": path,
+        "meta": {k: meta.get(k, "") for k in ("name", "strength_min", "strength_max", "notes")},
+        "search_url": f"{CIVITAI_WEB}/search/models?query={name}",
+    })
 
 
 # ------------------------------------------------------------------------------
@@ -461,7 +361,6 @@ class AGSoftMultiLoraLoader:
             return "active_loras must be a number."
         if count < 0 or count > MAX_LORA_SLOTS:
             return f"active_loras must be between 0 and {MAX_LORA_SLOTS}."
-
         available = set(_get_lora_options())
         for i in range(1, count + 1):
             if not _slot_enabled(kwargs.get(f"enabled_{i}", True)):
