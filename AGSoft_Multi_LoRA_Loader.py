@@ -41,7 +41,7 @@
 #    strengths skipped. Works headless/API without JS.
 # 
 # Автор / Author: AGSoft
-# Дата / Date: 16.09.2026
+# Дата / Date: 02.09.2026
 # ==============================================================================
 
 import os
@@ -209,12 +209,12 @@ def _fetch_civitai_info(lora_name):
         req = urllib.request.Request(url, headers={"User-Agent": "ComfyUI-AGSoft/1.0"})
         with urllib.request.urlopen(req, timeout=20) as resp:
             mv = json.loads(resp.read().decode("utf-8", "ignore"))
-        model = mv["model"] if isinstance(mv, dict) and "model" in mv and isinstance(mv["model"], dict) else {}
+        model = mv.get("model", {}) or {} if isinstance(mv.get("model"), dict) else {}
         # modelId may live on the version payload too
-        model_id = model["id"] if isinstance(model, dict) and "id" in model else None
+        model_id = model.get("id") if isinstance(model, dict) else None
         if not model_id:
-            model_id = mv["modelId"] if isinstance(mv, dict) and "modelId" in mv else None
-        version_id = mv["id"] if isinstance(mv, dict) and "id" in mv else None
+            model_id = mv.get("modelId")
+        version_id = mv.get("id")
         images = []
         for im in (mv.get("images") or [])[:24]:
             meta_d = im.get("meta") or {}
