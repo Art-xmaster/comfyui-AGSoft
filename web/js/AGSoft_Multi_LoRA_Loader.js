@@ -590,12 +590,13 @@ const collapse = (w) => {
 };
 
 const hookCallback = (w, fn) => {
-    if (!w) return;
-    const oc = w.callback ? w.callback["bind"](w) : null;
-    w.callback = (v) => {
-        if (oc) oc(v);
-        fn(v);
-    };
+if (!w) return;
+const prev = w.callback;
+const oc = prev ? (v) => prev.call(w, v) : null;
+w.callback = (v) => {
+if (oc) oc(v);
+fn(v);
+};
 };
 
 const applyClampToRow = (row, meta) => {
