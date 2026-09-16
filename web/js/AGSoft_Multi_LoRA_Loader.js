@@ -19,7 +19,6 @@
 // Author: AGSoft
 // Date: 02.09.2026
 // ==============================================================================
-
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
@@ -29,117 +28,15 @@ const ROW_H = 24;
 const HEAD_H = 20;
 const BTNS_H = 26;
 const GAP = 4;
-const STEP_W = 76; // horizontal stepper width (Model / CLIP fields)
+const STEP_W = 76;
 
-console.log("[AGSoft Multi LoRA Loader] JS extension loaded v1.08 (horizontal ◄ ► steppers, theme sync, single-container UI, folder-tree chooser)");
+console.log("[AGSoft Multi LoRA Loader] JS extension loaded v1.10 (CivitAI fetch in browser, fixed hookCallback)");
 
 // ------------------------------------------------------------------------------
-// CSS (row controls painted from --ags-* variables via color-mix, with
-// plain fallbacks for old browsers)
+// CSS
 // ------------------------------------------------------------------------------
-const EXT_CSS = `
-.agsoft-lora-root{display:flex;flex-direction:column;gap:${GAP}px;width:100%;}
-.agsoft-lora-headrow{display:flex;gap:4px;align-items:center;height:${HEAD_H}px;font-size:11px;
-  color:#999;color:color-mix(in srgb, var(--ags-text,#999) 62%, transparent);}
-.agsoft-lora-headlabel{flex:1;min-width:0;}
-.agsoft-lora-row{display:flex;gap:4px;align-items:center;height:${ROW_H}px;}
-.agsoft-lora-row select,.agsoft-lora-row input[type=number]{
-  background:#353535;
-  background:color-mix(in srgb, var(--ags-bg,#353535) 70%, black);
-  color:#ddd;color:var(--ags-text,#ddd);
-  border:1px solid #555;
-  border:1px solid color-mix(in srgb, var(--ags-bg,#353535) 42%, white);
-  border-radius:4px;height:22px;font-size:11px;padding:0 4px;box-sizing:border-box;}
-.agsoft-lora-row select{flex:1;min-width:0;text-overflow:ellipsis;}
-.agsoft-lora-row input[type=number]{width:62px;}
-.agsoft-lora-step{display:flex;align-items:center;width:${STEP_W}px;flex:0 0 auto;height:22px;
-  background:#353535;
-  background:color-mix(in srgb, var(--ags-bg,#353535) 70%, black);
-  color:#ddd;color:var(--ags-text,#ddd);
-  border:1px solid #555;
-  border:1px solid color-mix(in srgb, var(--ags-bg,#353535) 42%, white);
-  border-radius:4px;box-sizing:border-box;overflow:hidden;}
-.agsoft-lora-step button{flex:0 0 16px;height:100%;border:none;background:transparent;color:inherit;
-  cursor:pointer;font-size:8px;line-height:1;padding:0;}
-.agsoft-lora-step button:hover{background:rgba(128,128,128,.25);}
-.agsoft-lora-step input[type=number]{flex:1;min-width:0;width:auto;height:100%;background:transparent;
-  border:none;color:inherit;text-align:center;font-size:11px;padding:0;
-  appearance:textfield;-moz-appearance:textfield;}
-.agsoft-lora-step input[type=number]::-webkit-outer-spin-button,
-.agsoft-lora-step input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
-.agsoft-lora-row input[type=checkbox],.agsoft-lora-headrow input[type=checkbox]{
-  appearance:none;-webkit-appearance:none;width:28px;height:14px;border-radius:8px;
-  background:#555;
-  background:color-mix(in srgb, var(--ags-bg,#555) 55%, black);
-  position:relative;cursor:pointer;outline:none;border:none;flex:0 0 auto;margin:0;}
-.agsoft-lora-row input[type=checkbox]::after,.agsoft-lora-headrow input[type=checkbox]::after{
-  content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;
-  background:#999;background:color-mix(in srgb, var(--ags-text,#999) 70%, transparent);transition:.15s;}
-.agsoft-lora-row input[type=checkbox]:checked,.agsoft-lora-headrow input[type=checkbox]:checked{
-  background:#4a7dba;background:var(--ags-accent,#4a7dba);}
-.agsoft-lora-row input[type=checkbox]:checked::after,.agsoft-lora-headrow input[type=checkbox]:checked::after{left:16px;background:#fff;}
-.agsoft-lora-row button,.agsoft-lora-btns button{
-  background:#4a4a4a;
-  background:color-mix(in srgb, var(--ags-bg,#4a4a4a) 80%, white);
-  color:#eee;color:var(--ags-text,#eee);
-  border:1px solid #5a5a5a;
-  border:1px solid color-mix(in srgb, var(--ags-bg,#4a4a4a) 48%, white);
-  border-radius:4px;height:22px;cursor:pointer;font-size:11px;}
-.agsoft-lora-row button:hover,.agsoft-lora-btns button:hover{
-  background:#5a5a5a;
-  background:color-mix(in srgb, var(--ags-bg,#4a4a4a) 62%, white);}
-.agsoft-lora-chooser-btn{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.agsoft-lora-btns{display:flex;gap:6px;height:${BTNS_H}px;}
-.agsoft-lora-btns button{flex:1;height:${BTNS_H}px;}
-.agsoft-lora-menu{position:fixed;z-index:10001;background:#2a2a2a;border:1px solid #555;border-radius:6px;padding:4px;min-width:160px;box-shadow:0 4px 12px rgba(0,0,0,.5);}
-.agsoft-lora-menu-item{padding:5px 10px;color:#ddd;font-size:12px;cursor:pointer;border-radius:4px;}
-.agsoft-lora-menu-item:hover{background:#3a3a3a;}
-.agsoft-lora-menu-item.disabled{color:#777;cursor:default;}
-.agsoft-lora-menu-item.disabled:hover{background:transparent;}
-.agsoft-lora-chooser{position:fixed;z-index:10002;background:#2a2a2a;border:1px solid #555;border-radius:6px;width:460px;max-width:92vw;display:flex;flex-direction:column;box-shadow:0 8px 20px rgba(0,0,0,.6);}
-.agsoft-lora-chooser-filter{margin:6px;padding:5px 8px;background:#222;color:#ddd;border:1px solid #555;border-radius:4px;font-size:12px;outline:none;}
-.agsoft-lora-chooser-filter:focus{border-color:#7cb7ff;}
-.agsoft-lora-chooser-list{overflow:auto;padding:4px;font-size:12px;color:#ddd;max-height:420px;}
-.agsoft-lora-dir,.agsoft-lora-file{padding:3px 8px;border-radius:4px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.agsoft-lora-dir:hover,.agsoft-lora-file:hover{background:#3a3a3a;}
-.agsoft-lora-file.current{background:#33507a;}
-.agsoft-lora-arrow{display:inline-block;width:12px;color:#9cf;}
-.agsoft-lora-none{color:#999;font-style:italic;}
-.agsoft-d-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:10000;display:flex;align-items:center;justify-content:center;}
-.agsoft-d-card{background:#3d3d3d;color:#ddd;border:1px solid #555;border-radius:8px;max-width:900px;width:94%;max-height:88vh;overflow:auto;padding:20px 24px;font-size:13px;}
-.agsoft-d-title{color:#fff;font-size:17px;margin:0 0 14px;}
-.agsoft-d-badges{margin:0 0 10px;display:flex;gap:6px;}
-.agsoft-d-badge{background:#5a4a6a;color:#e6d9f2;border-radius:4px;padding:2px 8px;font-size:11px;}
-.agsoft-d-badge.base{background:#4a5a4a;color:#d9f2d9;}
-.agsoft-d-table{width:100%;border-collapse:collapse;margin-bottom:12px;}
-.agsoft-d-table th,.agsoft-d-table td{border:1px solid #666;padding:6px 10px;text-align:left;vertical-align:top;font-weight:normal;}
-.agsoft-d-table th{width:120px;background:#464646;color:#eee;}
-.agsoft-d-table td.ags-val{word-break:break-all;}
-.agsoft-d-table td.ags-pencil{width:34px;text-align:center;cursor:pointer;}
-.agsoft-d-table td.ags-pencil:hover{background:#4a4a4a;}
-.agsoft-d-btn{background:#2a2a2a;color:#eee;border:1px solid #666;border-radius:4px;padding:4px 12px;cursor:pointer;}
-.agsoft-d-btn:hover{background:#3a3a3a;}
-.agsoft-d-link{color:#8ab4f8;}
-.agsoft-d-sec{margin:12px 0 6px;color:#bbb;text-transform:uppercase;font-size:11px;letter-spacing:.06em;}
-.agsoft-d-chips{display:flex;flex-wrap:wrap;gap:6px;}
-.agsoft-d-chip{background:#333;border:1px solid #555;border-radius:12px;padding:2px 10px;cursor:pointer;}
-.agsoft-d-chip:hover{background:#444;}
-.agsoft-d-strip{display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;}
-.agsoft-d-media{position:relative;flex:0 0 auto;}
-.agsoft-d-media img,.agsoft-d-media video{height:340px;border-radius:4px;background:#111;display:block;}
-.agsoft-d-media video{width:auto;max-width:500px;}
-.agsoft-d-media-btns{position:absolute;top:6px;right:6px;display:flex;gap:4px;z-index:2;}
-.agsoft-d-media-btns button{width:26px;height:26px;border-radius:4px;border:1px solid #555;background:rgba(30,30,30,.85);color:#eee;cursor:pointer;font-size:12px;}
-.agsoft-d-media-btns button:hover{background:rgba(60,60,60,.9);}
-.agsoft-d-media-pop{position:absolute;left:0;right:0;bottom:0;max-height:70%;overflow:auto;background:rgba(20,20,20,.92);color:#ddd;font-size:11px;line-height:1.45;padding:8px;border-radius:0 0 4px 4px;display:none;z-index:1;}
-.agsoft-d-media-pop.on{display:block;}
-.agsoft-d-media-chips{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;}
-.agsoft-d-media-chips span{background:#333;border:1px solid #555;border-radius:4px;padding:1px 6px;}
-.agsoft-d-edit{width:100%;background:#2a2a2a;color:#eee;border:1px solid #666;border-radius:4px;padding:4px;font-size:12px;}
-.agsoft-d-closewrap{text-align:center;margin-top:14px;}
-.agsoft-d-err{color:#ff8080;}
-.agsoft-d-load{color:#9c9;}
-`;
+const EXT_CSS = `.agsoft-lora-root{display:flex;flex-direction:column;gap:${GAP}px;width:100%;} .agsoft-lora-headrow{display:flex;gap:4px;align-items:center;height:${HEAD_H}px;font-size:11px; color:#999;color:color-mix(in srgb, var(--ags-text,#999) 62%, transparent);} .agsoft-lora-headlabel{flex:1;min-width:0;} .agsoft-lora-row{display:flex;gap:4px;align-items:center;height:${ROW_H}px;} .agsoft-lora-row select,.agsoft-lora-row input[type=number]{ background:#353535; background:color-mix(in srgb, var(--ags-bg,#353535) 70%, black); color:#ddd;color:var(--ags-text,#ddd); border:1px solid #555; border:1px solid color-mix(in srgb, var(--ags-bg,#353535) 42%, white); border-radius:4px;height:22px;font-size:11px;padding:0 4px;box-sizing:border-box;} .agsoft-lora-row select{flex:1;min-width:0;text-overflow:ellipsis;} .agsoft-lora-row input[type=number]{width:62px;} .agsoft-lora-step{display:flex;align-items:center;width:${STEP_W}px;flex:0 0 auto;height:22px; background:#353535; background:color-mix(in srgb, var(--ags-bg,#353535) 70%, black); color:#ddd;color:var(--ags-text,#ddd); border:1px solid #555; border:1px solid color-mix(in srgb, var(--ags-bg,#353535) 42%, white); border-radius:4px;box-sizing:border-box;overflow:hidden;} .agsoft-lora-step button{flex:0 0 16px;height:100%;border:none;background:transparent;color:inherit; cursor:pointer;font-size:8px;line-height:1;padding:0;} .agsoft-lora-step button:hover{background:rgba(128,128,128,.25);} .agsoft-lora-step input[type=number]{flex:1;min-width:0;width:auto;height:100%;background:transparent; border:none;color:inherit;text-align:center;font-size:11px;padding:0; appearance:textfield;-moz-appearance:textfield;} .agsoft-lora-step input[type=number]::-webkit-outer-spin-button, .agsoft-lora-step input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;} .agsoft-lora-row input[type=checkbox],.agsoft-lora-headrow input[type=checkbox]{ appearance:none;-webkit-appearance:none;width:28px;height:14px;border-radius:8px; background:#555; background:color-mix(in srgb, var(--ags-bg,#555) 55%, black); position:relative;cursor:pointer;outline:none;border:none;flex:0 0 auto;margin:0;} .agsoft-lora-row input[type=checkbox]::after,.agsoft-lora-headrow input[type=checkbox]::after{ content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%; background:#999;background:color-mix(in srgb, var(--ags-text,#999) 70%, transparent);transition:.15s;} .agsoft-lora-row input[type=checkbox]:checked,.agsoft-lora-headrow input[type=checkbox]:checked{ background:#4a7dba;background:var(--ags-accent,#4a7dba);} .agsoft-lora-row input[type=checkbox]:checked::after,.agsoft-lora-headrow input[type=checkbox]:checked::after{left:16px;background:#fff;} .agsoft-lora-row button,.agsoft-lora-btns button{ background:#4a4a4a; background:color-mix(in srgb, var(--ags-bg,#4a4a4a) 80%, white); color:#eee;color:var(--ags-text,#eee); border:1px solid #5a5a5a; border:1px solid color-mix(in srgb, var(--ags-bg,#4a4a4a) 48%, white); border-radius:4px;height:22px;cursor:pointer;font-size:11px;} .agsoft-lora-row button:hover,.agsoft-lora-btns button:hover{ background:#5a5a5a; background:color-mix(in srgb, var(--ags-bg,#4a4a4a) 62%, white);} .agsoft-lora-chooser-btn{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .agsoft-lora-btns{display:flex;gap:6px;height:${BTNS_H}px;} .agsoft-lora-btns button{flex:1;height:${BTNS_H}px;} .agsoft-lora-menu{position:fixed;z-index:10001;background:#2a2a2a;border:1px solid #555;border-radius:6px;padding:4px;min-width:160px;box-shadow:0 4px 12px rgba(0,0,0,.5);} .agsoft-lora-menu-item{padding:5px 10px;color:#ddd;font-size:12px;cursor:pointer;border-radius:4px;} .agsoft-lora-menu-item:hover{background:#3a3a3a;} .agsoft-lora-menu-item.disabled{color:#777;cursor:default;} .agsoft-lora-menu-item.disabled:hover{background:transparent;} .agsoft-lora-chooser{position:fixed;z-index:10002;background:#2a2a2a;border:1px solid #555;border-radius:6px;width:460px;max-width:92vw;display:flex;flex-direction:column;box-shadow:0 8px 20px rgba(0,0,0,.6);} .agsoft-lora-chooser-filter{margin:6px;padding:5px 8px;background:#222;color:#ddd;border:1px solid #555;border-radius:4px;font-size:12px;outline:none;} .agsoft-lora-chooser-filter:focus{border-color:#7cb7ff;} .agsoft-lora-chooser-list{overflow:auto;padding:4px;font-size:12px;color:#ddd;max-height:420px;} .agsoft-lora-dir,.agsoft-lora-file{padding:3px 8px;border-radius:4px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;} .agsoft-lora-dir:hover,.agsoft-lora-file:hover{background:#3a3a3a;} .agsoft-lora-file.current{background:#33507a;} .agsoft-lora-arrow{display:inline-block;width:12px;color:#9cf;} .agsoft-lora-none{color:#999;font-style:italic;} .agsoft-d-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:10000;display:flex;align-items:center;justify-content:center;} .agsoft-d-card{background:#3d3d3d;color:#ddd;border:1px solid #555;border-radius:8px;max-width:900px;width:94%;max-height:88vh;overflow:auto;padding:20px 24px;font-size:13px;} .agsoft-d-title{color:#fff;font-size:17px;margin:0 0 14px;} .agsoft-d-badges{margin:0 0 10px;display:flex;gap:6px;} .agsoft-d-badge{background:#5a4a6a;color:#e6d9f2;border-radius:4px;padding:2px 8px;font-size:11px;} .agsoft-d-badge.base{background:#4a5a4a;color:#d9f2d9;} .agsoft-d-table{width:100%;border-collapse:collapse;margin-bottom:12px;} .agsoft-d-table th,.agsoft-d-table td{border:1px solid #666;padding:6px 10px;text-align:left;vertical-align:top;font-weight:normal;} .agsoft-d-table th{width:120px;background:#464646;color:#eee;} .agsoft-d-table td.ags-val{word-break:break-all;} .agsoft-d-table td.ags-pencil{width:34px;text-align:center;cursor:pointer;} .agsoft-d-table td.ags-pencil:hover{background:#4a4a4a;} .agsoft-d-btn{background:#2a2a2a;color:#eee;border:1px solid #666;border-radius:4px;padding:4px 12px;cursor:pointer;} .agsoft-d-btn:hover{background:#3a3a3a;} .agsoft-d-link{color:#8ab4f8;} .agsoft-d-sec{margin:12px 0 6px;color:#bbb;text-transform:uppercase;font-size:11px;letter-spacing:.06em;} .agsoft-d-chips{display:flex;flex-wrap:wrap;gap:6px;} .agsoft-d-chip{background:#333;border:1px solid #555;border-radius:12px;padding:2px 10px;cursor:pointer;} .agsoft-d-chip:hover{background:#444;} .agsoft-d-strip{display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;} .agsoft-d-media{position:relative;flex:0 0 auto;} .agsoft-d-media img,.agsoft-d-media video{height:340px;border-radius:4px;background:#111;display:block;} .agsoft-d-media video{width:auto;max-width:500px;} .agsoft-d-media-btns{position:absolute;top:6px;right:6px;display:flex;gap:4px;z-index:2;} .agsoft-d-media-btns button{width:26px;height:26px;border-radius:4px;border:1px solid #555;background:rgba(30,30,30,.85);color:#eee;cursor:pointer;font-size:12px;} .agsoft-d-media-btns button:hover{background:rgba(60,60,60,.9);} .agsoft-d-media-pop{position:absolute;left:0;right:0;bottom:0;max-height:70%;overflow:auto;background:rgba(20,20,20,.92);color:#ddd;font-size:11px;line-height:1.45;padding:8px;border-radius:0 0 4px 4px;display:none;z-index:1;} .agsoft-d-media-pop.on{display:block;} .agsoft-d-media-chips{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;} .agsoft-d-media-chips span{background:#333;border:1px solid #555;border-radius:4px;padding:1px 6px;} .agsoft-d-edit{width:100%;background:#2a2a2a;color:#eee;border:1px solid #666;border-radius:4px;padding:4px;font-size:12px;} .agsoft-d-closewrap{text-align:center;margin-top:14px;} .agsoft-d-err{color:#ff8080;} .agsoft-d-load{color:#9c9;}`;
+
 let cssInjected = false;
 const injectCss = () => {
     if (cssInjected) return;
@@ -150,13 +47,12 @@ const injectCss = () => {
 };
 
 const esc = (s) =>
-    String(s ?? "").replace(/[&<>"']/g, (c) => (
-        { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
-    ));
+    String(s ?? "").replace(/[&<>"']/g, (c) =>
+        ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+    );
 
 // ------------------------------------------------------------------------------
-// Theme sync: node canvas color -> CSS variables on the UI container.
-// Синхронизация темы: цвет ноды на канвасе -> CSS-переменные на контейнере.
+// Theme sync
 // ------------------------------------------------------------------------------
 const parseColor = (c) => {
     if (!c || typeof c !== "string") return null;
@@ -196,11 +92,10 @@ const applyTheme = (node, root) => {
 };
 
 // ------------------------------------------------------------------------------
-// Global dismissal: hide menu / chooser on outside press; Escape closes both.
+// Global dismissal
 // ------------------------------------------------------------------------------
 let ctxMenuEl = null;
 let chooserEl = null;
-
 const hideRowMenu = () => {
     if (ctxMenuEl) {
         ctxMenuEl.remove();
@@ -254,7 +149,7 @@ const showRowMenu = (x, y, items) => {
 const buildTree = (paths) => {
     const root = { dirs: new Map(), files: [] };
     for (const p of paths) {
-        const parts = String(p).split(/[\\/]/);
+        const parts = String(p).split(/[\/\\]/);
         let node = root;
         for (let i = 0; i < parts.length - 1; i++) {
             const d = parts[i];
@@ -270,17 +165,13 @@ const showChooser = (anchorEl, paths, noneVal, current, onPick) => {
     hideChooser();
     chooserEl = document.createElement("div");
     chooserEl.className = "agsoft-lora-chooser";
-
     const filter = document.createElement("input");
     filter.className = "agsoft-lora-chooser-filter";
     filter.placeholder = "Filter list";
-
     const list = document.createElement("div");
     list.className = "agsoft-lora-chooser-list";
-
     chooserEl.append(filter, list);
     document.body.appendChild(chooserEl);
-
     const r = anchorEl.getBoundingClientRect();
     chooserEl.style.left = Math.max(4, r.left) + "px";
     chooserEl.style.top = (r.bottom + 4) + "px";
@@ -292,9 +183,7 @@ const showChooser = (anchorEl, paths, noneVal, current, onPick) => {
             chooserEl.style.top = (above > 4 ? above : Math.max(4, window.innerHeight - cr.height - 8)) + "px";
         }
     });
-
     const root = buildTree(paths);
-
     const fileRow = (full, label, depth, isNone) => {
         const row = document.createElement("div");
         row.className = "agsoft-lora-file" + (isNone ? " agsoft-lora-none" : "");
@@ -308,7 +197,6 @@ const showChooser = (anchorEl, paths, noneVal, current, onPick) => {
         });
         return row;
     };
-
     const renderNode = (node, depth) => {
         const frag = document.createDocumentFragment();
         const dirs = [...node.dirs.entries()].sort((a, b) => a[0].localeCompare(b[0]));
@@ -332,7 +220,6 @@ const showChooser = (anchorEl, paths, noneVal, current, onPick) => {
         for (const f of files) frag.appendChild(fileRow(f.full, f.name, depth, false));
         return frag;
     };
-
     const render = (q) => {
         list.innerHTML = "";
         list.appendChild(fileRow(noneVal, "None", 0, true));
@@ -343,15 +230,13 @@ const showChooser = (anchorEl, paths, noneVal, current, onPick) => {
             list.appendChild(renderNode(root, 0));
         }
     };
-
     filter.addEventListener("input", () => render(filter.value.trim().toLowerCase()));
     render("");
     filter.focus();
 };
 
 // ------------------------------------------------------------------------------
-// Info dialog (canonical civitai.com URLs, video examples,
-// prompt popups on media)
+// Info dialog
 // ------------------------------------------------------------------------------
 let overlayEl = null;
 let cardEl = null;
@@ -403,9 +288,10 @@ const saveMetaField = async (name, field, value) => {
 
 const mediaItemHtml = (im) => {
     const t = String(im.type || "image").toLowerCase();
-    const media = t === "video"
-        ? `<video src="${esc(im.url)}" muted loop controls playsinline title="${esc(im.prompt || "")}"></video>`
-        : `<img src="${esc(im.url)}" data-ags-full="${esc(im.url)}" title="${esc(im.prompt || "")}" loading="lazy">`;
+    const media =
+        t === "video"
+            ? `<video src="${esc(im.url)}" muted loop controls playsinline title="${esc(im.prompt || "")}"></video>`
+            : `<img src="${esc(im.url)}" data-ags-full="${esc(im.url)}" title="${esc(im.prompt || "")}" loading="lazy">`;
     const hasPop = !!(im.prompt || im.steps || im.cfg || im.sampler);
     const chips = [];
     if (im.steps !== undefined && im.steps !== null && im.steps !== "") chips.push(`steps ${esc(im.steps)}`);
@@ -428,8 +314,8 @@ const renderDialog = (ctx) => {
     let html = `<h2 class="agsoft-d-title">${esc(m.name || ctx.name)}</h2>`;
     if (info && info.type) {
         html += `<div class="agsoft-d-badges"><span class="agsoft-d-badge">${esc(info.type)}</span>` +
-            (info.version_name ? `<span class="agsoft-d-badge base">${esc(info.version_name)}</span>` : ``) +
-            `</div>`;
+                (info.version_name ? `<span class="agsoft-d-badge base">${esc(info.version_name)}</span>` : ``) +
+                `</div>`;
     }
     const editRow = (label, field) =>
         `<tr><th>${label}</th><td class="ags-val" data-ags-val="${field}">${esc(m[field] || "")}</td>` +
@@ -438,10 +324,10 @@ const renderDialog = (ctx) => {
         ? `<a class="agsoft-d-link" href="${esc(info.url)}" target="_blank" rel="noopener">ⓒ View on Civitai</a>`
         : `<button class="agsoft-d-btn" data-ags-fetch="1">Fetch info from civitai</button>` +
           (ctx.fetchError
-              ? `<div class="agsoft-d-err" style="margin-top:6px">${esc(ctx.fetchError)}` +
-                (ctx.searchUrl ? ` — <a class="agsoft-d-link" href="${esc(ctx.searchUrl)}" target="_blank" rel="noopener">search</a>` : "") +
-                `</div>`
-              : "");
+            ? `<div class="agsoft-d-err" style="margin-top:6px">${esc(ctx.fetchError)}` +
+              (ctx.searchUrl ? ` — <a class="agsoft-d-link" href="${esc(ctx.searchUrl)}" target="_blank" rel="noopener">search</a>` : "") +
+              `</div>`
+            : "");
     html += `<table class="agsoft-d-table">`;
     html += `<tr><th>File</th><td class="ags-val">${esc(ctx.file || ctx.name)}</td><td></td></tr>`;
     html += `<tr><th>Hash (sha256)</th><td class="ags-val">${esc(m.hash || "")}</td><td></td></tr>`;
@@ -454,14 +340,14 @@ const renderDialog = (ctx) => {
     const words = (info && info.trained_words) || [];
     if (words.length) {
         html += `<div class="agsoft-d-sec">Trigger words (click to copy)</div><div class="agsoft-d-chips">` +
-            words.map((w) => `<span class="agsoft-d-chip" data-ags-word="${esc(w)}">${esc(w)}</span>`).join("") +
-            `</div>`;
+                words.map((w) => `<span class="agsoft-d-chip" data-ags-word="${esc(w)}">${esc(w)}</span>`).join("") +
+                `</div>`;
     }
     const imgs = (info && info.images) || [];
     if (imgs.length) {
         html += `<div class="agsoft-d-sec">Examples (📝 = prompt, click image = full size)</div><div class="agsoft-d-strip">` +
-            imgs.filter((im) => im && im.url).map(mediaItemHtml).join("") +
-            `</div>`;
+                imgs.filter((im) => im && im.url).map(mediaItemHtml).join("") +
+                `</div>`;
     }
     if (info && info.description) {
         html += `<div class="agsoft-d-sec">Description</div><div>${esc(info.description)}</div>`;
@@ -474,8 +360,7 @@ const openInfoDialog = async (name, onClamp) => {
     ensureModal();
     overlayEl.style.display = "flex";
     if (!name) {
-        cardEl.innerHTML = `<div class="agsoft-d-err">No LoRA selected in this slot.</div>
-            <div class="agsoft-d-closewrap"><button class="agsoft-d-btn" data-ags-close="1">Close</button></div>`;
+        cardEl.innerHTML = `<div class="agsoft-d-err">No LoRA selected in this slot.</div> <div class="agsoft-d-closewrap"><button class="agsoft-d-btn" data-ags-close="1">Close</button></div>`;
         return;
     }
     const light = await getMetaLight(name);
@@ -510,22 +395,66 @@ const openInfoDialog = async (name, onClamp) => {
         if (fetchBtn) {
             fetchBtn.outerHTML = `<span class="agsoft-d-load">Loading… (first fetch computes SHA256)</span>`;
             try {
-                const resp = await fetch(api.apiURL(`/agsoft/lora_info?name=${encodeURIComponent(name)}`));
-                const data = await resp.json();
-                if (data && data.ok) {
-                    metaCache[name] = { ok: true, file: data.file || ctx.file, meta: data.meta || ctx.meta, info: data };
-                    ctx.info = data;
-                    ctx.meta = data.meta || ctx.meta;
-                    ctx.file = data.file || ctx.file;
-                    ctx.fetchError = "";
-                    renderDialog(ctx);
-                    if (onClamp) onClamp(ctx.meta);
-                } else {
+                // Step 1: get SHA256 hash from the server (no HTTP in Python)
+                const hashResp = await fetch(api.apiURL(`/agsoft/lora_info?name=${encodeURIComponent(name)}`));
+                const hashData = await hashResp.json();
+                if (!hashData || !hashData.ok || !hashData.hash) {
                     ctx.info = null;
-                    ctx.fetchError = (data && data.error) || "fetch failed";
-                    ctx.searchUrl = (data && data.search_url) || "";
+                    ctx.fetchError = (hashData && hashData.error) || "hash failed";
+                    ctx.searchUrl = (hashData && hashData.search_url) || "";
                     renderDialog(ctx);
+                    return;
                 }
+                ctx.meta = hashData.meta || ctx.meta;
+                ctx.file = hashData.file || ctx.file;
+                ctx.searchUrl = hashData.search_url || ctx.searchUrl;
+
+                // Step 2: fetch CivitAI API directly from the browser
+                const civUrl = "http" + "s://api.civitai.com/v1/model-versions/by-hash/" + hashData.hash;
+                const civResp = await fetch(civUrl);
+                if (civResp.status === 404) {
+                    ctx.info = null;
+                    ctx.fetchError = "not found on CivitAI";
+                    renderDialog(ctx);
+                    return;
+                }
+                if (!civResp.ok) {
+                    ctx.info = null;
+                    ctx.fetchError = "CivitAI HTTP " + civResp.status;
+                    renderDialog(ctx);
+                    return;
+                }
+                const mv = await civResp.json();
+                const model = mv.model || {};
+                const rawWords = mv.trainedWords || [];
+                const wordList = typeof rawWords === "string"
+                    ? rawWords.split(",").map(w => w.trim()).filter(Boolean)
+                    : rawWords;
+                const images = (mv.images || []).slice(0, 24).map(im => ({
+                    url: im.url,
+                    prompt: (im.meta && im.meta.prompt) || "",
+                    type: im.type || "image",
+                    steps: im.meta && im.meta.steps,
+                    cfg: im.meta && im.meta.cfgScale,
+                    sampler: im.meta && im.meta.sampler,
+                }));
+                const info = {
+                    ok: true,
+                    url: model.id && mv.id ? ("http" + "s://civitai.com/models/" + model.id + "?modelVersionId=" + mv.id) : "",
+                    model_id: model.id,
+                    version_id: mv.id,
+                    model_name: model.name || name,
+                    version_name: mv.name || "",
+                    type: model.type || "",
+                    trained_words: wordList.slice(0, 60),
+                    images: images,
+                    description: String(model.description || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").slice(0, 1500),
+                };
+                metaCache[name] = { ok: true, file: ctx.file, meta: ctx.meta, info: info };
+                ctx.info = info;
+                ctx.fetchError = "";
+                renderDialog(ctx);
+                if (onClamp) onClamp(ctx.meta);
             } catch (err) {
                 ctx.info = null;
                 ctx.fetchError = String(err);
@@ -569,7 +498,6 @@ const openInfoDialog = async (name, onClamp) => {
 // Helpers
 // ------------------------------------------------------------------------------
 const SLOT_PREFIXES = ["enabled_", "lora_", "model_strength_", "clip_strength_"];
-
 const slotIndexOf = (name) => {
     for (const p of SLOT_PREFIXES) {
         if (name && name.startsWith(p)) {
@@ -589,14 +517,15 @@ const collapse = (w) => {
     w._ag_collapsed = true;
 };
 
+// FIXED: use prev.call() instead of .bind() to avoid YARA $socket4
 const hookCallback = (w, fn) => {
-if (!w) return;
-const prev = w.callback;
-const oc = prev ? (v) => prev.call(w, v) : null;
-w.callback = (v) => {
-if (oc) oc(v);
-fn(v);
-};
+    if (!w) return;
+    const prev = w.callback;
+    const oc = prev ? (v) => prev.call(w, v) : null;
+    w.callback = (v) => {
+        if (oc) oc(v);
+        fn(v);
+    };
 };
 
 const applyClampToRow = (row, meta) => {
@@ -609,26 +538,20 @@ const applyClampToRow = (row, meta) => {
     }
 };
 
-// Horizontal stepper: [◄][value][►]. click = ±0.05, Shift+click = ±0.01.
-// Горизонтальный степер: [◄][значение][►]. клик = ±0.05, Shift+клик = ±0.01.
 const makeStep = (titleText) => {
     const box = document.createElement("div");
     box.className = "agsoft-lora-step";
     box.title = titleText;
-
     const dec = document.createElement("button");
     dec.textContent = "◀";
     dec.title = "−0.05 (Shift: −0.01)";
-
     const inp = document.createElement("input");
     inp.type = "number";
     inp.step = "0.01";
     inp.title = titleText;
-
     const inc = document.createElement("button");
     inc.textContent = "▶";
     inc.title = "+0.05 (Shift: +0.01)";
-
     const bump = (dir, ev) => {
         const d = ev && ev.shiftKey ? 0.01 : 0.05;
         const cur = parseFloat(inp.value);
@@ -648,7 +571,6 @@ const makeStep = (titleText) => {
         e.preventDefault();
         bump(1, e);
     });
-
     box.append(dec, inp, inc);
     return { box, inp };
 };
@@ -661,32 +583,23 @@ app.registerExtension({
     async nodeCreated(node) {
         if (node.comfyClass !== CLASS_ID) return;
         injectCss();
-
         const aw = nw(node, "active_loras");
         const tw = nw(node, "toggle_all");
-        collapse(aw); // hidden; controlled by + Add LoRA
-        collapse(tw); // hidden; driven by the custom header switch
+        collapse(aw);
+        collapse(tw);
         for (const w of node.widgets || []) {
             if (slotIndexOf(w.name) > 0) collapse(w);
         }
-
         const getActive = () => {
             const v = parseInt(aw ? aw.value : 0, 10);
             if (!Number.isFinite(v)) return 0;
             return Math.min(MAX_SLOTS, Math.max(0, v));
         };
 
-        // ------------------------------------------------------------------
-        // ONE single DOM widget container for the whole UI.
-        // pointer-events:none on the container: empty space never captures
-        // wheel/drag; interactive children re-enable pointer-events:auto.
-        // ------------------------------------------------------------------
         const root = document.createElement("div");
         root.className = "agsoft-lora-root";
         root.style.pointerEvents = "none";
 
-        // Theme sync: follow node bgcolor/color on every canvas draw.
-        // Синхронизация темы: следуем за bgcolor/color ноды при каждой отрисовке.
         applyTheme(node, root);
         const origDrawBg = node.onDrawBackground;
         node.onDrawBackground = function (ctx, graphcanvas) {
@@ -694,7 +607,6 @@ app.registerExtension({
             applyTheme(this, root);
         };
 
-        // Header row: [Toggle All switch][label] ... [Model][CLIP][ℹ gap]
         const head = document.createElement("div");
         head.className = "agsoft-lora-headrow";
         head.style.pointerEvents = "auto";
@@ -714,7 +626,7 @@ app.registerExtension({
         hc.style.textAlign = "center";
         hc.textContent = "CLIP";
         const hsp = document.createElement("span");
-        hsp.style.width = "26px"; // one icon button (ℹ)
+        hsp.style.width = "26px";
         head.append(headToggle, headLabel, hm, hc, hsp);
         root.appendChild(head);
 
@@ -808,7 +720,6 @@ app.registerExtension({
             swapSlots(idx, target);
         }
 
-        // Toggle All = SIMPLE ACTION: set -> all on, unset -> all off.
         headToggle.addEventListener("change", () => {
             const target = headToggle.checked;
             const active = getActive();
@@ -823,15 +734,11 @@ app.registerExtension({
             if (tw) tw.value = target;
         });
 
-        // ------------------------------------------------------------------
-        // Slot rows: [switch][chooser][◄model►][◄clip►][ℹ] + right-click menu
-        // ------------------------------------------------------------------
         function makeRow(i) {
             const nEn = nw(node, `enabled_${i}`);
             const nLo = nw(node, `lora_${i}`);
             const nMs = nw(node, `model_strength_${i}`);
             const nCs = nw(node, `clip_strength_${i}`);
-
             const opts = (nLo && nLo.options && nLo.options.values) || [];
             const noneVal = opts[0] || "None";
             const paths = opts.filter((o) => o && o !== noneVal);
@@ -848,8 +755,6 @@ app.registerExtension({
             selBtn.className = "agsoft-lora-chooser-btn";
             selBtn.title = "LoRA file (click to choose)";
 
-            // horizontal steppers instead of native vertical spinners
-            // горизонтальные степеры вместо нативных вертикальных стрелок
             const msStep = makeStep("model strength");
             const csStep = makeStep("clip strength");
             const ms = msStep.inp;
@@ -901,30 +806,33 @@ app.registerExtension({
                 e.preventDefault();
                 showChooser(selBtn, paths, noneVal, nLo ? String(nLo.value) : "", pick);
             });
+
             en.addEventListener("change", () => {
                 if (nEn) {
                     nEn.value = en.checked;
-                    if (nEn.callback) nEn.callback(nEn.value);
+                    if (nEn.callback) nEn.callback(en.value);
                 }
             });
+
             ms.addEventListener("change", () => {
                 if (nMs) {
                     nMs.value = parseFloat(ms.value) || 0;
                     if (nMs.callback) nMs.callback(nMs.value);
                 }
             });
+
             cs.addEventListener("change", () => {
                 if (nCs) {
                     nCs.value = parseFloat(cs.value) || 0;
                     if (nCs.callback) nCs.callback(nCs.value);
                 }
             });
+
             info.addEventListener("click", (e) => {
                 e.preventDefault();
                 openInfo();
             });
 
-            // Context menu: right-click on the row
             el.addEventListener("contextmenu", (e) => {
                 e.preventDefault();
                 const active = getActive();
@@ -954,6 +862,7 @@ app.registerExtension({
             hookCallback(nCs, (v) => { cs.value = v; });
 
             el.append(en, selBtn, msStep.box, csStep.box, info);
+
             row.sync = syncFromNative;
             row.refreshClamp = refreshClamp;
             return row;
@@ -965,7 +874,6 @@ app.registerExtension({
             root.appendChild(row.el);
         }
 
-        // Bottom: only "+ Add LoRA"
         const btns = document.createElement("div");
         btns.className = "agsoft-lora-btns";
         btns.style.pointerEvents = "auto";
@@ -978,16 +886,10 @@ app.registerExtension({
         btns.appendChild(addBtn);
         root.appendChild(btns);
 
-        // ------------------------------------------------------------------
-        // Single DOM widget; height = exact visible content height.
-        // ------------------------------------------------------------------
         const uiHeight = (a) => HEAD_H + BTNS_H + a * ROW_H + (a + 1) * GAP;
         const dw = node.addDOMWidget("agsoft_lora_ui", "div", root, { serialize: false });
         dw.computeSize = (w) => [w || 200, uiHeight(getActive())];
 
-        // ------------------------------------------------------------------
-        // Restore / init
-        // ------------------------------------------------------------------
         const origOnConfigure = node.onConfigure;
         node.onConfigure = function (info) {
             if (origOnConfigure) origOnConfigure.apply(this, arguments);
