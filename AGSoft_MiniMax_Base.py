@@ -1,7 +1,7 @@
 # ==============================================================================
 # AGSoft_MiniMax_Base.py
 # ==============================================================================
-# Нода: 🎬 AGSoft MiniMax Base
+# Нода: 🎬AGSoft MiniMax Base
 # Автор: AGSoft
 # Дата: 04.08.2026 г.
 #
@@ -147,7 +147,7 @@ ASPECT_RATIOS = ["1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16", "21:9", "9:2
 # ========================================================================
 class AGSoft_MiniMax_Base:
 
-    CATEGORY = "AGSoft/Video"
+    CATEGORY = "AGSoft/MiniMaxH3"
     FUNCTION = "main"
 
     DESCRIPTION = (
@@ -587,4 +587,4 @@ class AGSoft_MiniMax_Base:
 # Регистрация
 # ========================================================================
 NODE_CLASS_MAPPINGS = {"AGSoft_MiniMax_Base": AGSoft_MiniMax_Base}
-NODE_DISPLAY_NAME_MAPPINGS = {"AGSoft_MiniMax_Base": "🎬 AGSoft MiniMax Base"}
+NODE_DISPLAY_NAME_MAPPINGS = {"AGSoft_MiniMax_Base": "🎬AGSoft MiniMax Base"}

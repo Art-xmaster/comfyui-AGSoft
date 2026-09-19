@@ -518,7 +518,7 @@ class AGSoftMiniMaxH3Cache:
     RETURN_TYPES = ("MODEL",)
     RETURN_NAMES = ("model",)
     FUNCTION = "apply_cache"
-    CATEGORY = "AGSoft/Model"
+    CATEGORY = "AGSoft/MiniMaxH3"
     DESCRIPTION = (
         "🚀 AGSoft MiniMax H3 Cache.\n"
         "Accelerates MiniMax H3 sampling by reusing the cached full-step model output when BOTH video "
