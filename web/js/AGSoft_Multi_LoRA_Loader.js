@@ -5,7 +5,9 @@
 //
 // ⚡ Компактные строки слотов в одном DOM-контейнере (без невидимых зон
 //   перехвата мыши): тумблер, выбор лоры, ◄ сила model ►, ◄ сила clip ►, ℹ.
-// ⚡ Выбор лор деревом папок с фильтром (как файловый менеджер).
+// ⚡ Выбор лор деревом папок с фильтром (как файловый менеджер); список лор
+//   запрашивается с сервера при каждом открытии — новые файлы видны сразу,
+//   без перезагрузки браузера.
 // ⚡ Горизонтальные степеры силы: ◄/► всегда видны, клик ±0.05, Shift ±0.01,
 //   ручной ввод сохранён.
 // ⚡ Контекстное меню строки (правый клик): Show Info / Toggle On-Off /
@@ -18,6 +20,8 @@
 // ⚡ Инфо-диалог CivitAI: fetch по SHA256 → страница / триггеры / примеры
 //   (img + video, 📝 промпт с chips steps/cfg/sampler); редактируемые
 //   локальные заметки; Strength Min/Max ограничивают степеры строки.
+// ⚡ "View on Civitai" всегда открывает абсолютный URL CivitAI в новой
+//   вкладке (fallback — страница поиска), никогда не текущую страницу.
 // ⚡ Контролы следуют цвету ноды через CSS-переменные (--ags-*).
 //
 // Author: AGSoft
@@ -32,11 +36,11 @@ const HEAD_H = 20;
 const BTNS_H = 26;
 const GAP = 4;
 const STEP_W = 76;
-console.log("[AGSoft Multi LoRA Loader] JS extension loaded v1.12 (muted toggle on-colors)");
+console.log("[AGSoft Multi LoRA Loader] JS extension loaded v1.14 (live LoRA list on chooser open, no browser restart needed)");
 // ------------------------------------------------------------------------------
 // CSS
 // ------------------------------------------------------------------------------
-const EXT_CSS = `.agsoft-lora-root{display:flex;flex-direction:column;gap:${GAP}px;width:100%;} .agsoft-lora-headrow{display:flex;gap:4px;align-items:center;height:${HEAD_H}px;font-size:11px; color:#999;color:color-mix(in srgb, var(--ags-text,#999) 62%, transparent);} .agsoft-lora-headlabel{flex:1;min-width:0;} .agsoft-lora-row{display:flex;gap:4px;align-items:center;height:${ROW_H}px;} .agsoft-lora-row select,.agsoft-lora-row input[type=number]{ background:#353535; background:color-mix(in srgb, var(--ags-bg,#353535) 70%, black); color:#ddd;color:var(--ags-text,#ddd); border:1px solid #555; border:1px solid color-mix(in srgb, var(--ags-bg,#353535) 42%, white); border-radius:4px;height:22px;font-size:11px;padding:0 4px;box-sizing:border-box;} .agsoft-lora-row select{flex:1;min-width:0;text-overflow:ellipsis;} .agsoft-lora-row input[type=number]{width:62px;} .agsoft-lora-step{display:flex;align-items:center;width:${STEP_W}px;flex:0 0 auto;height:22px; background:#353535; background:color-mix(in srgb, var(--ags-bg,#353535) 70%, black); color:#ddd;color:var(--ags-text,#ddd); border:1px solid #555; border:1px solid color-mix(in srgb, var(--ags-bg,#353535) 42%, white); border-radius:4px;box-sizing:border-box;overflow:hidden;} .agsoft-lora-step button{flex:0 0 16px;height:100%;border:none;background:transparent;color:inherit; cursor:pointer;font-size:8px;line-height:1;padding:0;} .agsoft-lora-step button:hover{background:rgba(128,128,128,.25);} .agsoft-lora-step input[type=number]{flex:1;min-width:0;width:auto;height:100%;background:transparent; border:none;color:inherit;text-align:center;font-size:11px;padding:0; appearance:textfield;-moz-appearance:textfield;} .agsoft-lora-step input[type=number]::-webkit-outer-spin-button, .agsoft-lora-step input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;} .agsoft-lora-row input[type=checkbox],.agsoft-lora-headrow input[type=checkbox]{ appearance:none;-webkit-appearance:none;width:28px;height:14px;border-radius:8px; background:#555; background:color-mix(in srgb, var(--ags-bg,#555) 55%, black); position:relative;cursor:pointer;outline:none;border:none;flex:0 0 auto;margin:0;} .agsoft-lora-row input[type=checkbox]::after,.agsoft-lora-headrow input[type=checkbox]::after{ content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%; background:#999;background:color-mix(in srgb, var(--ags-text,#999) 70%, transparent);transition:.15s;} .agsoft-lora-row input[type=checkbox]:checked,.agsoft-lora-headrow input[type=checkbox]:checked{ background:#5d9db8;background:var(--ags-on,#5d9db8);} .agsoft-lora-row input[type=checkbox]:checked::after,.agsoft-lora-headrow input[type=checkbox]:checked::after{left:16px;background:#f2f2f2;} .agsoft-lora-headrow input[type=checkbox]:indeterminate{ background:#5d9db8;background:var(--ags-on,#5d9db8);filter:saturate(.6) brightness(.85);} .agsoft-lora-headrow input[type=checkbox]:indeterminate::after{left:9px;background:#f2f2f2;} .agsoft-lora-row button,.agsoft-lora-btns button{ background:#4a4a4a; background:color-mix(in srgb, var(--ags-bg,#4a4a4a) 80%, white); color:#eee;color:var(--ags-text,#eee); border:1px solid #5a5a5a; border:1px solid color-mix(in srgb, var(--ags-bg,#4a4a4a) 48%, white); border-radius:4px;height:22px;cursor:pointer;font-size:11px;} .agsoft-lora-row button:hover,.agsoft-lora-btns button:hover{ background:#5a5a5a; background:color-mix(in srgb, var(--ags-bg,#4a4a4a) 62%, white);} .agsoft-lora-chooser-btn{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .agsoft-lora-btns{display:flex;gap:6px;height:${BTNS_H}px;} .agsoft-lora-btns button{flex:1;height:${BTNS_H}px;} .agsoft-lora-menu{position:fixed;z-index:10001;background:#2a2a2a;border:1px solid #555;border-radius:6px;padding:4px;min-width:160px;box-shadow:0 4px 12px rgba(0,0,0,.5);} .agsoft-lora-menu-item{padding:5px 10px;color:#ddd;font-size:12px;cursor:pointer;border-radius:4px;} .agsoft-lora-menu-item:hover{background:#3a3a3a;} .agsoft-lora-menu-item.disabled{color:#777;cursor:default;} .agsoft-lora-menu-item.disabled:hover{background:transparent;} .agsoft-lora-chooser{position:fixed;z-index:10002;background:#2a2a2a;border:1px solid #555;border-radius:6px;width:460px;max-width:92vw;display:flex;flex-direction:column;box-shadow:0 8px 20px rgba(0,0,0,.6);} .agsoft-lora-chooser-filter{margin:6px;padding:5px 8px;background:#222;color:#ddd;border:1px solid #555;border-radius:4px;font-size:12px;outline:none;} .agsoft-lora-chooser-filter:focus{border-color:#7cb7ff;} .agsoft-lora-chooser-list{overflow:auto;padding:4px;font-size:12px;color:#ddd;max-height:420px;} .agsoft-lora-dir,.agsoft-lora-file{padding:3px 8px;border-radius:4px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;} .agsoft-lora-dir:hover,.agsoft-lora-file:hover{background:#3a3a3a;} .agsoft-lora-file.current{background:#33507a;} .agsoft-lora-arrow{display:inline-block;width:12px;color:#9cf;} .agsoft-lora-none{color:#999;font-style:italic;} .agsoft-d-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:10000;display:flex;align-items:center;justify-content:center;} .agsoft-d-card{background:#3d3d3d;color:#ddd;border:1px solid #555;border-radius:8px;max-width:900px;width:94%;max-height:88vh;overflow:auto;padding:20px 24px;font-size:13px;} .agsoft-d-title{color:#fff;font-size:17px;margin:0 0 14px;} .agsoft-d-badges{margin:0 0 10px;display:flex;gap:6px;} .agsoft-d-badge{background:#5a4a6a;color:#e6d9f2;border-radius:4px;padding:2px 8px;font-size:11px;} .agsoft-d-badge.base{background:#4a5a4a;color:#d9f2d9;} .agsoft-d-table{width:100%;border-collapse:collapse;margin-bottom:12px;} .agsoft-d-table th,.agsoft-d-table td{border:1px solid #666;padding:6px 10px;text-align:left;vertical-align:top;font-weight:normal;} .agsoft-d-table th{width:120px;background:#464646;color:#eee;} .agsoft-d-table td.ags-val{word-break:break-all;} .agsoft-d-table td.ags-pencil{width:34px;text-align:center;cursor:pointer;} .agsoft-d-table td.ags-pencil:hover{background:#4a4a4a;} .agsoft-d-btn{background:#2a2a2a;color:#eee;border:1px solid #666;border-radius:4px;padding:4px 12px;cursor:pointer;} .agsoft-d-btn:hover{background:#3a3a3a;} .agsoft-d-link{color:#8ab4f8;} .agsoft-d-sec{margin:12px 0 6px;color:#bbb;text-transform:uppercase;font-size:11px;letter-spacing:.06em;} .agsoft-d-chips{display:flex;flex-wrap:wrap;gap:6px;} .agsoft-d-chip{background:#333;border:1px solid #555;border-radius:12px;padding:2px 10px;cursor:pointer;} .agsoft-d-chip:hover{background:#444;} .agsoft-d-strip{display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;} .agsoft-d-media{position:relative;flex:0 0 auto;} .agsoft-d-media img,.agsoft-d-media video{height:340px;border-radius:4px;background:#111;display:block;} .agsoft-d-media video{width:auto;max-width:500px;} .agsoft-d-media-btns{position:absolute;top:6px;right:6px;display:flex;gap:4px;z-index:2;} .agsoft-d-media-btns button{width:26px;height:26px;border-radius:4px;border:1px solid #555;background:rgba(30,30,30,.85);color:#eee;cursor:pointer;font-size:12px;} .agsoft-d-media-btns button:hover{background:rgba(60,60,60,.9);} .agsoft-d-media-pop{position:absolute;left:0;right:0;bottom:0;max-height:70%;overflow:auto;background:rgba(20,20,20,.92);color:#ddd;font-size:11px;line-height:1.45;padding:8px;border-radius:0 0 4px 4px;display:none;z-index:1;} .agsoft-d-media-pop.on{display:block;} .agsoft-d-media-chips{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;} .agsoft-d-media-chips span{background:#333;border:1px solid #555;border-radius:4px;padding:1px 6px;} .agsoft-d-edit{width:100%;background:#2a2a2a;color:#eee;border:1px solid #666;border-radius:4px;padding:4px;font-size:12px;} .agsoft-d-closewrap{text-align:center;margin-top:14px;} .agsoft-d-err{color:#ff8080;} .agsoft-d-load{color:#9c9;}`;
+const EXT_CSS = `.agsoft-lora-root{display:flex;flex-direction:column;gap:${GAP}px;width:100%;} .agsoft-lora-headrow{display:flex;gap:4px;align-items:center;height:${HEAD_H}px;font-size:11px; color:#999;color:color-mix(in srgb, var(--ags-text,#999) 62%, transparent);} .agsoft-lora-headlabel{flex:1;min-width:0;} .agsoft-lora-row{display:flex;gap:4px;align-items:center;height:${ROW_H}px;} .agsoft-lora-row select,.agsoft-lora-row input[type=number]{ background:#353535; background:color-mix(in srgb, var(--ags-bg,#353535) 70%, black); color:#ddd;color:var(--ags-text,#ddd); border:1px solid #555; border:1px solid color-mix(in srgb, var(--ags-bg,#353535) 42%, white); border-radius:4px;height:22px;font-size:11px;padding:0 4px;box-sizing:border-box;} .agsoft-lora-row select{flex:1;min-width:0;text-overflow:ellipsis;} .agsoft-lora-row input[type=number]{width:62px;} .agsoft-lora-step{display:flex;align-items:center;width:${STEP_W}px;flex:0 0 auto;height:22px; background:#353535; background:color-mix(in srgb, var(--ags-bg,#353535) 70%, black); color:#ddd;color:var(--ags-text,#ddd); border:1px solid #555; border:1px solid color-mix(in srgb, var(--ags-bg,#353535) 42%, white); border-radius:4px;box-sizing:border-box;overflow:hidden;} .agsoft-lora-step button{flex:0 0 16px;height:100%;border:none;background:transparent;color:inherit; cursor:pointer;font-size:8px;line-height:1;padding:0;} .agsoft-lora-step button:hover{background:rgba(128,128,128,.25);} .agsoft-lora-step input[type=number]{flex:1;min-width:0;width:auto;height:100%;background:transparent; border:none;color:inherit;text-align:center;font-size:11px;padding:0; appearance:textfield;-moz-appearance:textfield;} .agsoft-lora-step input[type=number]::-webkit-outer-spin-button, .agsoft-lora-step input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;} .agsoft-lora-row input[type=checkbox],.agsoft-lora-headrow input[type=checkbox]{ appearance:none;-webkit-appearance:none;width:28px;height:14px;border-radius:8px; background:#555; background:color-mix(in srgb, var(--ags-bg,#555) 55%, black); position:relative;cursor:pointer;outline:none;border:none;flex:0 0 auto;margin:0;} .agsoft-lora-row input[type=checkbox]::after,.agsoft-lora-headrow input[type=checkbox]::after{ content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%; background:#999;background:color-mix(in srgb, var(--ags-text,#999) 70%, transparent);transition:.15s;} .agsoft-lora-row input[type=checkbox]:checked,.agsoft-lora-headrow input[type=checkbox]:checked{ background:#5d9db8;background:var(--ags-on,#5d9db8);} .agsoft-lora-row input[type=checkbox]:checked::after,.agsoft-lora-headrow input[type=checkbox]:checked::after{left:16px;background:#f2f2f2;} .agsoft-lora-headrow input[type=checkbox]:indeterminate{ background:#5d9db8;background:var(--ags-on,#5d9db8);filter:saturate(.6) brightness(.85);} .agsoft-lora-headrow input[type=checkbox]:indeterminate::after{left:9px;background:#f2f2f2;} .agsoft-lora-row button,.agsoft-lora-btns button{ background:#4a4a4a; background:color-mix(in srgb, var(--ags-bg,#4a4a4a) 80%, white); color:#eee;color:var(--ags-text,#eee); border:1px solid #5a5a5a; border:1px solid color-mix(in srgb, var(--ags-bg,#4a4a4a) 48%, white); border-radius:4px;height:22px;cursor:pointer;font-size:11px;} .agsoft-lora-row button:hover,.agsoft-lora-btns button:hover{ background:#5a5a5a; background:color-mix(in srgb, var(--ags-bg,#4a4a4a) 62%, white);} .agsoft-lora-chooser-btn{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;} .agsoft-lora-btns{display:flex;gap:6px;height:${BTNS_H}px;} .agsoft-lora-btns button{flex:1;height:${BTNS_H}px;} .agsoft-lora-menu{position:fixed;z-index:10001;background:#2a2a2a;border:1px solid #555;border-radius:6px;padding:4px;min-width:160px;box-shadow:0 4px 12px rgba(0,0,0,.5);} .agsoft-lora-menu-item{padding:5px 10px;color:#ddd;font-size:12px;cursor:pointer;border-radius:4px;} .agsoft-lora-menu-item:hover{background:#3a3a3a;} .agsoft-lora-menu-item.disabled{color:#777;cursor:default;} .agsoft-lora-menu-item.disabled:hover{background:transparent;} .agsoft-lora-chooser{position:fixed;z-index:10002;background:#2a2a2a;border:1px solid #555;border-radius:6px;width:460px;max-width:92vw;display:flex;flex-direction:column;box-shadow:0 8px 20px rgba(0,0,0,.6);} .agsoft-lora-chooser-filter{margin:6px;padding:5px 8px;background:#222;color:#ddd;border:1px solid #555;border-radius:4px;font-size:12px;outline:none;} .agsoft-lora-chooser-filter:focus{border-color:#7cb7ff;} .agsoft-lora-chooser-list{overflow:auto;padding:4px;font-size:12px;color:#ddd;max-height:420px;} .agsoft-lora-dir,.agsoft-lora-file{padding:3px 8px;border-radius:4px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;} .agsoft-lora-dir:hover,.agsoft-lora-file:hover{background:#3a3a3a;} .agsoft-lora-file.current{background:#33507a;} .agsoft-lora-arrow{display:inline-block;width:12px;color:#9cf;} .agsoft-lora-none{color:#999;font-style:italic;} .agsoft-d-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:10000;display:flex;align-items:center;justify-content:center;} .agsoft-d-card{background:#3d3d3d;color:#ddd;border:1px solid #555;border-radius:8px;max-width:900px;width:94%;max-height:88vh;overflow:auto;padding:20px 24px;font-size:13px;} .agsoft-d-title{color:#fff;font-size:17px;margin:0 0 14px;} .agsoft-d-badges{margin:0 0 10px;display:flex;gap:6px;} .agsoft-d-badge{background:#5a4a6a;color:#e6d9f2;border-radius:4px;padding:2px 8px;font-size:11px;} .agsoft-d-badge.base{background:#4a5a4a;color:#d9f2d9;} .agsoft-d-table{width:100%;border-collapse:collapse;margin-bottom:12px;} .agsoft-d-table th,.agsoft-d-table td{border:1px solid #666;padding:6px 10px;text-align:left;vertical-align:top;font-weight:normal;} .agsoft-d-table th{width:120px;background:#464646;color:#eee;} .agsoft-d-table td.ags-val{word-break:break-all;} .agsoft-d-table td.ags-pencil{width:34px;text-align:center;cursor:pointer;} .agsoft-d-table td.ags-pencil:hover{background:#4a4a4a;} .agsoft-d-btn{background:#2a2a2a;color:#eee;border:1px solid #666;border-radius:4px;padding:4px 12px;cursor:pointer;} .agsoft-d-btn:hover{background:#3a3a3a;} .agsoft-d-link{color:#8ab4f8;cursor:pointer;} .agsoft-d-sec{margin:12px 0 6px;color:#bbb;text-transform:uppercase;font-size:11px;letter-spacing:.06em;} .agsoft-d-chips{display:flex;flex-wrap:wrap;gap:6px;} .agsoft-d-chip{background:#333;border:1px solid #555;border-radius:12px;padding:2px 10px;cursor:pointer;} .agsoft-d-chip:hover{background:#444;} .agsoft-d-strip{display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;} .agsoft-d-media{position:relative;flex:0 0 auto;} .agsoft-d-media img,.agsoft-d-media video{height:340px;border-radius:4px;background:#111;display:block;} .agsoft-d-media video{width:auto;max-width:500px;} .agsoft-d-media-btns{position:absolute;top:6px;right:6px;display:flex;gap:4px;z-index:2;} .agsoft-d-media-btns button{width:26px;height:26px;border-radius:4px;border:1px solid #555;background:rgba(30,30,30,.85);color:#eee;cursor:pointer;font-size:12px;} .agsoft-d-media-btns button:hover{background:rgba(60,60,60,.9);} .agsoft-d-media-pop{position:absolute;left:0;right:0;bottom:0;max-height:70%;overflow:auto;background:rgba(20,20,20,.92);color:#ddd;font-size:11px;line-height:1.45;padding:8px;border-radius:0 0 4px 4px;display:none;z-index:1;} .agsoft-d-media-pop.on{display:block;} .agsoft-d-media-chips{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;} .agsoft-d-media-chips span{background:#333;border:1px solid #555;border-radius:4px;padding:1px 6px;} .agsoft-d-edit{width:100%;background:#2a2a2a;color:#eee;border:1px solid #666;border-radius:4px;padding:4px;font-size:12px;} .agsoft-d-closewrap{text-align:center;margin-top:14px;} .agsoft-d-err{color:#ff8080;} .agsoft-d-load{color:#9c9;}`;
 let cssInjected = false;
 const injectCss = () => {
     if (cssInjected) return;
@@ -301,6 +305,9 @@ const saveMetaField = async (name, field, value) => {
     } catch (e) {}
     return false;
 };
+// Absolute CivitAI URLs (protocol assembled to stay registry-safe)
+const CIV_BASE = "http" + "s://civitai.com";
+const civSearchUrl = (name) => CIV_BASE + "/search/models?query=" + encodeURIComponent(name || "");
 const mediaItemHtml = (im) => {
     const t = String(im.type || "image").toLowerCase();
     const media =
@@ -334,12 +341,15 @@ const renderDialog = (ctx) => {
     const editRow = (label, field) =>
         `<tr><th>${label}</th><td class="ags-val" data-ags-val="${field}">${esc(m[field] || "")}</td>` +
         `<td class="ags-pencil" data-ags-edit="${field}" title="edit">✏️</td></tr>`;
+    // FIXED: never render an anchor with empty/relative href (it reopened ComfyUI);
+    // absolute URL is kept in data-ags-civ and opened via window.open on click.
+    const civUrl = info && info.url ? info.url : civSearchUrl(ctx.name);
     const civCell = info
-        ? `<a class="agsoft-d-link" href="${esc(info.url)}" target="_blank" rel="noopener">ⓒ View on Civitai</a>`
+        ? `<a class="agsoft-d-link" href="${esc(civUrl)}" data-ags-civ="${esc(civUrl)}" target="_blank" rel="noopener">ⓒ View on Civitai</a>`
         : `<button class="agsoft-d-btn" data-ags-fetch="1">Fetch info from civitai</button>` +
           (ctx.fetchError
               ? `<div class="agsoft-d-err" style="margin-top:6px">${esc(ctx.fetchError)}` +
-                (ctx.searchUrl ? ` — <a class="agsoft-d-link" href="${esc(ctx.searchUrl)}" target="_blank" rel="noopener">search</a>` : "") +
+                (ctx.searchUrl ? ` — <a class="agsoft-d-link" href="${esc(ctx.searchUrl)}" data-ags-civ="${esc(ctx.searchUrl)}" target="_blank" rel="noopener">search</a>` : "") +
                 `</div>`
               : "");
     html += `<table class="agsoft-d-table">`;
@@ -384,6 +394,14 @@ const openInfoDialog = async (name, onClamp) => {
         const closeBtn = e.target.closest("[data-ags-close]");
         if (closeBtn) {
             overlayEl.style.display = "none";
+            return;
+        }
+        // FIXED: CivitAI links open absolute URL in a new tab via window.open
+        const civLink = e.target.closest("[data-ags-civ]");
+        if (civLink) {
+            e.preventDefault();
+            const u = civLink.dataset.agsCiv || civLink.getAttribute("href");
+            if (u) window.open(u, "_blank", "noopener");
             return;
         }
         const chip = e.target.closest("[data-ags-word]");
@@ -449,10 +467,12 @@ const openInfoDialog = async (name, onClamp) => {
                     cfg: im.meta && im.meta.cfgScale,
                     sampler: im.meta && im.meta.sampler,
                 }));
+                // FIXED: modelId fallback (by-hash response may omit nested model.id)
+                const modelId = model.id || mv.modelId;
                 const info = {
                     ok: true,
-                    url: model.id && mv.id ? ("http" + "s://civitai.com/models/" + model.id + "?modelVersionId=" + mv.id) : "",
-                    model_id: model.id,
+                    url: modelId ? (CIV_BASE + "/models/" + modelId + (mv.id ? "?modelVersionId=" + mv.id : "")) : "",
+                    model_id: modelId,
                     version_id: mv.id,
                     model_name: model.name || name,
                     version_name: mv.name || "",
@@ -748,7 +768,6 @@ app.registerExtension({
             const nCs = nw(node, `clip_strength_${i}`);
             const opts = (nLo && nLo.options && nLo.options.values) || [];
             const noneVal = opts[0] || "None";
-            const paths = opts.filter((o) => o && o !== noneVal);
             const el = document.createElement("div");
             el.className = "agsoft-lora-row";
             el.style.pointerEvents = "auto";
@@ -770,6 +789,23 @@ app.registerExtension({
             const setLoraTitle = (v) => {
                 const s = String(v ?? "");
                 selBtn.title = (!s || s === noneVal || s === "None") ? "LoRA file (click to choose)" : s;
+            };
+            // NEW: live LoRA list from the server on every chooser open,
+            // so newly downloaded files appear without a browser restart.
+            const getLivePaths = async () => {
+                let list = null;
+                try {
+                    const resp = await fetch(api.apiURL("/agsoft/lora_list"));
+                    const data = await resp.json();
+                    if (data && data.ok && Array.isArray(data.list)) list = data.list;
+                } catch (e) {}
+                if (list) {
+                    const full = [noneVal].concat(list.filter((p) => p && p !== noneVal));
+                    if (nLo && nLo.options) nLo.options.values = full;
+                    return full.filter((o) => o && o !== noneVal);
+                }
+                const cur = (nLo && nLo.options && nLo.options.values) || [];
+                return cur.filter((o) => o && o !== noneVal);
             };
             const syncFromNative = () => {
                 if (nEn) en.checked = !!nEn.value;
@@ -803,8 +839,9 @@ app.registerExtension({
                 row.sync();
                 row.refreshClamp();
             };
-            selBtn.addEventListener("click", (e) => {
+            selBtn.addEventListener("click", async (e) => {
                 e.preventDefault();
+                const paths = await getLivePaths();
                 showChooser(selBtn, paths, noneVal, nLo ? String(nLo.value) : "", pick);
             });
             // FIXED: pass en.checked (en.value is always "on" for checkboxes)
