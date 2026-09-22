@@ -69,7 +69,7 @@ import comfy.utils
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-print("[AGSoft Multi LoRA Loader] v1.03 loaded (20 slots, Toggle All, CivitAI info dialog, live lora list endpoint, safe patching, no Python HTTP)")
+# print("[AGSoft Multi LoRA Loader] v1.03 loaded (20 slots, Toggle All, CivitAI info dialog, live lora list endpoint, safe patching, no Python HTTP)")
 
 MAX_LORA_SLOTS = 20
 LORA_NONE = "none"
