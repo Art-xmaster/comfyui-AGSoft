@@ -2,7 +2,7 @@
 ==============================================================================
 AGSoft_Image_Stitch_Plus.py
 ==============================================================================
-Нода: 🖼AGSoft Image Stitch Plus
+Нода: 🖼️AGSoft Image Stitch Plus
 Описание / Description:
 Нода сшивания изображений в сетки и ленты для видео-генераций без
 обязательных входов IMAGE. Изображения попадают в ноду двумя способами:
@@ -732,5 +732,5 @@ NODE_CLASS_MAPPINGS = {
     "AGSoft_Image_Stitch_Plus": AGSoft_Image_Stitch_Plus
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "AGSoft_Image_Stitch_Plus": "🖼AGSoft Image Stitch Plus"
+    "AGSoft_Image_Stitch_Plus": "🖼️AGSoft Image Stitch Plus"
 }
