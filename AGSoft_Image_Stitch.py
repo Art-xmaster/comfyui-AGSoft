@@ -457,5 +457,5 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "AGSoft_Image_Stitch": "AGSoft Image Stitch"
+    "AGSoft_Image_Stitch": "🖼️AGSoft Image Stitch"
 }
