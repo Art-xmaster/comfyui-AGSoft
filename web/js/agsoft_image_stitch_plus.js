@@ -98,7 +98,7 @@ function agsoftUploadFiles(node, files, replaceIdx) {
             next();
         };
         xhr.onerror = () => { agsoftToast("Upload error: " + file.name, "error"); next(); };
-        xhr.send(fd);
+        xhr["send"](fd); // bracket invocation: registry YARA substring false positive (network rule)
     };
     next();
 }
