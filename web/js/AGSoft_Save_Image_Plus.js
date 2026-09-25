@@ -1,7 +1,8 @@
 // ==============================================================================
 // AGSoft_Save_Image_Plus.js
 // ==============================================================================
-// JS-расширение для ноды 🖼️💾AGSoft Save Image Plus.
+// JS-расширение для ноды 🖼️AGSoft Save Image Plus.
+// Версия / Version: v25.09.3
 //
 // Возможности / Features:
 // ⚡ Превью ВСЕГО БАТЧА на канвасе (адаптивная сетка, вписывается в размер
@@ -32,15 +33,28 @@
 // ⚡ Правый клик по превью — меню как в Preview Image:
 //   Open Image / Copy Image / Save Image + Save to output.
 //   Right-click over a preview — menu like Preview Image.
+// ⚡ v20.09.3: спойлер-стрелка — все виджеты настроек сворачиваются; видимыми
+//   остаются полоса-спойлер и превью; состояние хранится в node.properties и
+//   переживает перезагрузку; НОВАЯ нода создаётся полностью развёрнутой.
+//   Spoiler arrow — all settings widgets collapse; only the spoiler bar and
+//   the preview stay visible; state is stored in node.properties and survives
+//   reloads; a NEW node is created fully EXPANDED.
+// ⚡ v25.09.3: информационная полоса над превью
+//   [⚙ режим • формат • число превью + подсказка ......... ▼] — заполняет
+//   пустое место слева от стрелки; клик по ВСЕЙ полосе сворачивает/
+//   разворачивает настройки; надпись живая (обновляется после выполнения и
+//   при смене save_image / image_format).
+//   Info bar over the preview
+//   [⚙ mode • format • preview count + hint ......... ▼] — fills the empty
+//   space left of the arrow; clicking ANYWHERE on the bar collapses/expands
+//   the settings; the label is live (updates after execution and on
+//   save_image / image_format changes).
 //
-// JS extension for the 🖼️AGSoft Save Image Plus node.
-// (See the RU list above — the same features.)
+// Автор / Author: AGSoft
+// Дата / Date: 25.09.2026
 // ==============================================================================
-
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
-
-// console.log("[AGSoft Save Image Plus] JS extension loaded v20.08.2 (size label + open/copy/download buttons + context menu)");
 
 // ------------------------------------------------------------------------------
 // Простой toast (для показа пути после сохранения).
@@ -74,7 +88,6 @@ const showToast = (msg, isError) => {
 
 app.registerExtension({
     name: "AGSoft.SaveImagePlus",
-
     async nodeCreated(node) {
         if (node.comfyClass !== "AGSoftSaveImagePlus") return;
 
@@ -124,7 +137,6 @@ app.registerExtension({
                 showToast("No preview to save.", true);
                 return;
             }
-
             try {
                 const resp = await fetch(api.apiURL("/agsoft/save_now"), {
                     method: "POST",
@@ -138,9 +150,7 @@ app.registerExtension({
                         workflow: app.graph.serialize(),
                     }),
                 });
-
                 const data = await resp.json();
-
                 if (data && data.ok) {
                     item.flash = Date.now();
                     node.setDirtyCanvas(true, true);
@@ -155,7 +165,6 @@ app.registerExtension({
             }
         };
 
-
         // ------------------------------------------------------------------
         // Ссылка /view для entry (превью и все браузерные действия).
         // /view URL for an entry (previews and all browser actions).
@@ -168,6 +177,7 @@ app.registerExtension({
             });
             return api.apiURL("/view?" + params.toString());
         };
+
         // 📂 Open: открыть превью в новой вкладке браузера.
         // Open the preview in a new browser tab.
         const openEntry = (item) => {
@@ -177,6 +187,7 @@ app.registerExtension({
             }
             window.open(viewURL(item.entry), "_blank");
         };
+
         // 📋 Copy: скопировать PNG в буфер обмена (как Copy Image в Preview Image).
         // Copy PNG to clipboard (like Copy Image in Preview Image).
         const copyEntry = async (item) => {
@@ -198,6 +209,7 @@ app.registerExtension({
                 showToast(`Copy failed: ${err.message}`, true);
             }
         };
+
         // ⬇ Download: скачать через браузер (Save As в любую папку),
         // как Save Image в Preview Image.
         // Download via browser (Save As to any folder), like Save Image.
@@ -229,10 +241,8 @@ app.registerExtension({
         // ------------------------------------------------------------------
         const buildItems = (list) => {
             node._agsoft_items = [];
-
             for (const entry of list) {
                 const item = { entry, img: null, aspect: null, flash: 0 };
-
                 const im = new Image();
                 im.onload = () => {
                     item.img = im;
@@ -241,26 +251,22 @@ app.registerExtension({
                     }
                     node.setDirtyCanvas(true, true);
                 };
-
                 const params = new URLSearchParams({
                     filename: entry.filename,
                     type: entry.type || "temp",
                     subfolder: entry.subfolder || "",
                 });
                 im.src = api.apiURL("/view?" + params.toString());
-
                 node._agsoft_items.push(item);
             }
-
             node.setDirtyCanvas(true, true);
+            refreshBarLabel();
         };
 
         node.properties = node.properties || {};
-
         const origExecuted = node.onExecuted;
         node.onExecuted = function (output) {
             if (origExecuted) origExecuted.apply(this, arguments);
-
             const list = output && output.agsoft_previews;
             if (list && list.length) {
                 node.properties["agsoft_previews"] = list;
@@ -268,47 +274,256 @@ app.registerExtension({
             }
         };
 
+        // ----------------------------------------------------------------------
+        // Spoiler bar: [⚙ надпись-пояснение ......... [▼]]
+        // Вся полоса кликабельна — сворачивает/разворачивает блок настроек.
+        // ----------------------------------------------------------------------
+        const topBar = document.createElement("div");
+        Object.assign(topBar.style, {
+            width: "100%",
+            height: "24px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: "6px",
+            padding: "0 4px",
+            boxSizing: "border-box",
+            background: "rgba(58, 63, 74, 0.35)",
+            borderRadius: "4px",
+            cursor: "pointer",
+        });
+        topBar.title =
+            "Click anywhere on the bar to collapse/expand the settings block\n" +
+            "Клик по полосе — свернуть/развернуть блок настроек";
+        const barLabel = document.createElement("span");
+        Object.assign(barLabel.style, {
+            flex: "1 1 auto",
+            minWidth: "0",
+            overflow: "hidden",
+            whiteSpace: "nowrap",
+            textOverflow: "ellipsis",
+            color: "#9aa4b2",
+            fontSize: "10px",
+            fontFamily: "sans-serif",
+            textAlign: "left",
+            userSelect: "none",
+            pointerEvents: "none",
+        });
+        topBar.appendChild(barLabel);
+        const toggleBtn = document.createElement("button");
+        Object.assign(toggleBtn.style, {
+            flex: "none",
+            width: "30px",
+            height: "20px",
+            background: "#3a3f4a",
+            color: "#fff",
+            border: "none",
+            borderRadius: "3px",
+            fontSize: "11px",
+            cursor: "pointer",
+            pointerEvents: "none", // клики обрабатывает вся полоса
+        });
+        topBar.appendChild(toggleBtn);
+
+        const spoilerWidget = node.addDOMWidget("agsoft_spoiler_bar", "div", topBar, {
+            serialize: false,
+            hideOnZoom: false,
+        });
+        if (spoilerWidget) {
+            spoilerWidget.computeSize = function(width) {
+                return [width || 200, 24];
+            };
+        }
+
+        const COLLAPSIBLE = new Set([
+            "save_image",
+            "filename_prefix",
+            "output_path",
+            "create_dated_subfolder",
+            "image_format",
+            "png_compression",
+            "jpg_quality",
+            "webp_quality",
+            "overwrite_existing",
+            "embed_workflow",
+        ]);
+        
+        let collapsed = false;
+        const setWidgetsVisible = (visible) => {
+            for (const w of node.widgets || []) {
+                if (!COLLAPSIBLE.has(w.name)) continue;
+                w.hidden = !visible;
+                if (visible) {
+                    if (typeof w.show === "function") {
+                        try { w.show(); } catch (e) {}
+                    }
+                } else {
+                    if (typeof w.hide === "function") {
+                        try { w.hide(); } catch (e) {}
+                    }
+                }
+            }
+        };
+        
+        // Живая надпись: режим • формат • число превью + подсказка.
+        function refreshBarLabel() {
+            const w = (name) => {
+                const widget = node.widgets && node.widgets.find(x => x.name === name);
+                return widget ? widget.value : null;
+            };
+            const fmt = w("image_format") || "png";
+            const saveOn = !!w("save_image");
+            const n = (node._agsoft_items || []).length;
+            const info =
+                (saveOn ? "💾 save ON" : "👁 preview only") +
+                " • " + fmt +
+                " • " + (n === 1 ? "1 preview" : n + " previews");
+            barLabel.textContent = collapsed
+                ? "⚙ Settings hidden — click ▲ to expand  |  " + info
+                : "⚙ " + info + "  —  click ▼ to collapse";
+        }
+        const updateToggle = () => {
+            toggleBtn.textContent = collapsed ? "▲" : "▼";
+            toggleBtn.title = collapsed
+                ? "Settings hidden — click to expand\nНастройки скрыты — нажмите, чтобы развернуть"
+                : "Settings shown — click to collapse\nНастройки видны — нажмите, чтобы свернуть";
+            refreshBarLabel();
+        };
+
+        // Обновлять надпись при смене режима/формата пользователем.
+        for (const nm of ["save_image", "image_format"]) {
+            const wd = node.widgets && node.widgets.find(x => x.name === nm);
+            if (wd) {
+                const origCb = wd.callback;
+                wd.callback = function (...args) {
+                    if (origCb) origCb.apply(this, args);
+                    refreshBarLabel();
+                };
+            }
+        }
+
+        const MIN_PREVIEW_H = 120;
+        let previewExtra = 0;
+        let baseHeight = null;
+        
+        const origCompute = node.computeSize;
+        const origComputeSize = origCompute
+            ? function (...args) { return origCompute.apply(node, args); }
+            : null;
+            
+        node.computeSize = function (...args) {
+            const s = origComputeSize ? origComputeSize(...args) : [this.size[0], this.size[1]];
+            if (Array.isArray(s)) {
+                s[1] = Math.max(0, s[1] - previewExtra);
+            }
+            return s;
+        };
+
+        const measureBase = () => {
+            previewExtra = 0;
+            const bs = node.computeSize ? node.computeSize() : [node.size[0], 0];
+            const b = Math.max(0, Number(bs && bs[1]) || 0);
+            baseHeight = b;
+            return b;
+        };
+
+        function applyState(st, keepExtra, heightHint) {
+            collapsed = !!st;
+            setWidgetsVisible(!collapsed);
+            updateToggle();
+            node.properties = node.properties || {};
+            node.properties["agsoft_widgets_collapsed"] = collapsed;
+            const b = measureBase();
+            let extra;
+            if (heightHint != null) {
+                extra = Math.max(0, heightHint - b);
+            } else {
+                extra = Math.max(0, keepExtra || 0);
+            }
+            previewExtra = extra;
+            node.setSize([Math.max(220, Number(node.size[0]) || 220), b + extra]);
+            node.setDirtyCanvas(true, true);
+        }
+
+        topBar.onclick = () => applyState(!collapsed, previewExtra, null);
+
+        const syncLayout = (preserveUserHeight = true) => {
+            const currentW = Math.max(220, Number(node.size && node.size[0]) || 220);
+            const currentH = Math.max(0, Number(node.size && node.size[1]) || 0);
+            const baseH = measureBase();
+            let targetH = currentH;
+            if (!preserveUserHeight || targetH < baseH) {
+                targetH = baseH;
+            }
+            previewExtra = Math.max(0, targetH - baseH);
+            node.setSize([currentW, targetH]);
+            node.setDirtyCanvas(true, true);
+        };
+
+        const origOnResize = node.onResize;
+        node.onResize = function (size) {
+            if (baseHeight == null) {
+                syncLayout(true);
+            }
+            previewExtra = Math.max(0, size[1] - (baseHeight || 0));
+            if (origOnResize) {
+                origOnResize.apply(this, arguments);
+            }
+            node.setDirtyCanvas(true, true);
+        };
+
         const origConfigure = node.onConfigure;
         node.onConfigure = function (info) {
             if (origConfigure) origConfigure.apply(this, arguments);
-
             const list = node.properties && node.properties["agsoft_previews"];
             if (list && list.length) buildItems(list);
+            
+            // Restore spoiler state
+            const st = !!(node.properties && node.properties["agsoft_widgets_collapsed"]);
+            const h = Number(node.size && node.size[1]) || 0;
+            setTimeout(() => applyState(st, null, h), 0);
         };
 
         // ------------------------------------------------------------------
         // Раскладка сетки: считается при КАЖДОЙ отрисовке из текущего размера
         // ноды → превью всегда вписано; ресайз ноды = новая сетка.
-        // Низ виджетов — по last_y последнего виджета (надёжно).
+        // Низ виджетов — по last_y последнего ВИДИМОГО виджета (надёжно).
         // Число колонок — из пропорций свободной области (адаптивно).
         //
         // Grid layout: computed on EVERY draw from the current node size →
         // the preview always fits; node resize = new grid.
-        // Widgets bottom — from the last widget's last_y (reliable).
+        // Widgets bottom — from the last VISIBLE widget's last_y (reliable).
         // Column count — from the free area's aspect (adaptive).
         // ------------------------------------------------------------------
         const computeLayout = () => {
             const layout = [];
             const n = (node._agsoft_items || []).length;
             if (!n) return layout;
-
             let bottom = 0;
             if (node.widgets && node.widgets.length) {
-                const lw = node.widgets[node.widgets.length - 1];
-                const lh = lw.computeSize
-                    ? lw.computeSize(node.size[0])[1]
-                    : (lw.height || 20);
-                bottom = (lw.last_y || 0) + lh;
+                let lw = null;
+                for (let i = node.widgets.length - 1; i >= 0; i--) {
+                    if (!node.widgets[i].hidden) {
+                        lw = node.widgets[i];
+                        break;
+                    }
+                }
+                if (lw) {
+                    const lh = lw.computeSize
+                        ? lw.computeSize(node.size[0])[1]
+                        : (lw.height || 20);
+                    bottom = (lw.last_y || 0) + lh;
+                } else {
+                    bottom = node.widgets_start_y || 30;
+                }
             } else {
                 bottom = node.widgets_start_y || 30;
             }
-
             const areaX = 6;
             const areaY = bottom + 6;
             const areaW = node.size[0] - 12;
             const areaH = node.size[1] - areaY - 6;
             if (areaW < 24 || areaH < 24) return layout;
-
             // Адаптивная сетка: cols из пропорций области.
             // Adaptive grid: cols from the area's aspect.
             const aspect = areaW / Math.max(1, areaH);
@@ -317,7 +532,6 @@ app.registerExtension({
             const rows = Math.ceil(n / cols);
             const cw = areaW / cols;
             const ch = areaH / rows;
-
             for (let i = 0; i < n; i++) {
                 const cx = areaX + (i % cols) * cw;
                 const cy = areaY + Math.floor(i / cols) * ch;
@@ -355,23 +569,18 @@ app.registerExtension({
         node.onDrawForeground = function (ctx) {
             try {
                 if (this.flags && this.flags.collapsed) return;
-
                 const items = this._agsoft_items || [];
                 const layout = computeLayout();
                 this._agsoft_layout = layout;
                 if (!layout.length) return;
-
                 ctx.save();
                 ctx.beginPath();
                 ctx.rect(0, 0, this.size[0], this.size[1]);
                 ctx.clip();
-
                 const now = Date.now();
-
                 for (const cell of layout) {
                     const item = items[cell.index];
                     if (!item) continue;
-
                     const [bx, by, bw, bh] = cell.btn;
                     const flashed = item.flash && (now - item.flash < 1500);
                     ctx.fillStyle = flashed ? "#3b7" : "#2a6";
@@ -386,7 +595,7 @@ app.registerExtension({
                         by + bh / 2 + 0.5
                     );
                     // [📂][📋][⬇] — маленькие кнопки справа от Save.
-                    // [📂][📋][] — small buttons to the right of Save.
+                    // [📂][📋][⬇] — small buttons to the right of Save.
                     const icons = [
                         [cell.open, "📂"],
                         [cell.copy, "📋"],
@@ -400,10 +609,8 @@ app.registerExtension({
                         ctx.fillText(glyph, r[0] + r[2] / 2, r[1] + r[3] / 2 + 0.5);
                     }
                     const [ix, iy, iw, ih] = cell.imgArea;
-
                     ctx.fillStyle = "#111";
                     ctx.fillRect(ix, iy, iw, ih);
-
                     if (item.img && item.aspect) {
                         const scale = Math.min(
                             iw / item.img.naturalWidth,
@@ -462,6 +669,7 @@ app.registerExtension({
             }
             return null;
         };
+
         // Ячейка целиком (кнопки+превью+строка размера) — для правого клика.
         // Whole cell (buttons+preview+size line) — for the right-click menu.
         const hitCell = (pos) => {
@@ -477,6 +685,7 @@ app.registerExtension({
             }
             return -1;
         };
+
         const origMouseDown = node.onMouseDown;
         node.onMouseDown = function (e, pos, canvas) {
             const hit = hitAction(pos);
@@ -493,6 +702,7 @@ app.registerExtension({
             if (origMouseDown) return origMouseDown.apply(this, arguments);
             return false;
         };
+
         // Pointer-курсор над любой кнопкой панели.
         // Pointer cursor over any panel button.
         const origMouseMove = node.onMouseMove;
@@ -506,6 +716,7 @@ app.registerExtension({
             if (origMouseMove) return origMouseMove.apply(this, arguments);
             return false;
         };
+
         // Контекстное меню как в Preview Image (правый клик по превью).
         // Context menu like Preview Image (right-click over a preview).
         const origMenu = node.getExtraMenuOptions;
@@ -535,23 +746,22 @@ app.registerExtension({
             return options;
         };
 
-
         // ------------------------------------------------------------------
-        // Стартовый размер: ширина 320, высота = виджеты + 320px под превью.
-        // Изображения видны СРАЗУ, растягивать вручную не нужно.
-        // Initial size: width 320, height = widgets + 320px for the preview.
-        // Images are visible IMMEDIATELY, no manual stretching needed.
+        // Стартовая высота и синхронизация
+        // Initial height and sync
         // ------------------------------------------------------------------
-        let widgetsH = 30;
-        if (node.widgets) {
-            for (const w of node.widgets) {
-                const h = w.computeSize
-                    ? w.computeSize(320)[1]
-                    : (w.height || 20);
-                widgetsH += h + 4;
-            }
-        }
-        node.setSize([320, widgetsH + 320]);
-        app.graph.setDirtyCanvas(true);
+        const fresh = !(
+            node.properties &&
+            Object.prototype.hasOwnProperty.call(node.properties, "agsoft_widgets_collapsed")
+        );
+        const initialCollapsed = fresh
+            ? false
+            : !!node.properties["agsoft_widgets_collapsed"];
+            
+        setTimeout(() => {
+            syncLayout(true);
+            applyState(initialCollapsed, fresh ? 320 : previewExtra, null);
+            app.graph.setDirtyCanvas(true);
+        }, 0);
     }
 });
