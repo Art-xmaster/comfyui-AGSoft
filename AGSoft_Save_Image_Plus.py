@@ -1,82 +1,93 @@
-# ==============================================================================
-# AGSoft_Save_Image_Plus.py
-# ==============================================================================
-# Нода: 🖼️💾AGSoft Save Image Plus
-# Описание / Description:
-# Расширенная нода сохранения изображений с ПРЕВЬЮ ВСЕГО БАТЧА в ноде и
-# кнопкой "Save now" НАД КАЖДЫМ изображением.
-#
-# Два режима работы:
-# - save_image=True  → пишет все изображения батча в output сразу + превью;
-# - save_image=False → пишет только временные превью (preview-only, без мусора
-#   в output); кнопка "Save now" над каждым изображением сохраняет его в
-#   output по требованию с текущими настройками виджетов (формат, качество,
-#   путь, вшивание воркфлоу).
-#
-# Превью: для каждого изображения батча пишется temp-PNG и отдаётся в
-# ui.agsoft_previews (фронтенд этот ключ не рисует — превью и кнопки строит
-# JS). Сетка превью адаптивная и вписывается в текущий размер ноды.
-#
-# Выходы (как в AGSoft Image & Mask Resize Plus):
-# IMAGE (проход), width, height (первого изображения), filename, saved_path
-# (для батча — через запятую).
-#
-# Поддерживает PNG/JPG/WebP/BMP с раздельными настройками сжатия/качества,
-# подпапки (output_path) и подпапку с датой (create_dated_subfolder),
-# вшивание workflow в PNG (tEXt-чанки) и отдельный .json для JPG/WebP/BMP.
-#
-# Extended image saver with a PREVIEW OF THE WHOLE BATCH inside the node and
-# a "Save now" button OVER EACH image.
-#
-# Two modes:
-# - save_image=True  → writes all batch images to output immediately + preview;
-# - save_image=False → writes temp previews only (no clutter in output); the
-#   "Save now" button over each image saves it to output on demand with the
-#   current widget settings (format, quality, path, workflow embedding).
-#
-# Preview: a temp PNG is written for each batch image and returned in
-# ui.agsoft_previews (the frontend does not render this key — the JS builds
-# the previews and buttons). The preview grid is adaptive and fits the
-# current node size.
-#
-# Outputs (like AGSoft Image & Mask Resize Plus):
-# IMAGE (passed through), width, height (of the first image), filename,
-# saved_path (comma-joined for batches).
-#
-# Supports PNG/JPG/WebP/BMP with per-format compression/quality settings,
-# subfolders (output_path) and a dated subfolder (create_dated_subfolder),
-# workflow embedding into PNG (tEXt chunks) and a separate .json for
-# JPG/WebP/BMP.
-#
-# Возможности / Features:
-# ⚡ Превью всего батча в ноде + кнопка "Save now" над каждым изображением.
-#   Whole-batch preview in the node + a "Save now" button over each image.
-# ⚡ Два режима: save_image=True (весь батч в output) / False (только temp).
-#   Two modes: save_image=True (whole batch to output) / False (temp only).
-# ⚡ Выходы как в Image Resize Plus: images / width / height / filename / saved_path.
-#   Outputs like Image Resize Plus: images / width / height / filename / saved_path.
-# ⚡ PNG/JPG/WebP/BMP с раздельными настройками сжатия/качества.
-#   PNG/JPG/WebP/BMP with per-format compression/quality settings.
-# ⚡ Подпапки (output_path) + подпапка с датой (create_dated_subfolder).
-#   Subfolders (output_path) + dated subfolder (create_dated_subfolder).
-# ⚡ Вшивание workflow: PNG tEXt / отдельный .json для JPG/WebP/BMP.
-#   Workflow embedding: PNG tEXt / separate .json for JPG/WebP/BMP.
-# ⚡ Кнопка "Save now" шлёт воркфлоу из браузера (app.graph.serialize()).
-#   The "Save now" button sends the workflow from the browser (app.graph.serialize()).
-# ⚡ Адаптивная сетка превью на канвасе, вписывается в размер ноды (JS).
-#   Adaptive canvas preview grid fitted into the node size (JS).
-# ⚡ OUTPUT_NODE=True, IS_CHANGED, VALIDATE_INPUTS.
-#    OUTPUT_NODE=True, IS_CHANGED, VALIDATE_INPUTS.
-# ⚡ Строка размера W×H под каждым превью + кнопки 📂/📋/⬇ и правый клик
-#    (Open/Copy/Save Image) как в Preview Image.
-#    W×H size line under each preview + 📂//⬇ buttons and right-click menu
-#    (Open/Copy/Save Image) like Preview Image.
-# ⚡ Уникальные temp-имена (uuid) — превью корректны при нескольких нодах.
-#    Unique temp names (uuid) — previews stay correct with several nodes.
-#
-# Автор / Author: AGSoft
-# Дата / Date: 03.09.2026
-# ==============================================================================
+"""
+==============================================================================
+AGSoft_Save_Image_Plus.py
+==============================================================================
+Нода / Node: 🖼️AGSoft Save Image Plus
+Версия / Version: v25.09.3
+
+Описание / Description:
+Расширенная нода сохранения изображений с ПРЕВЬЮ ВСЕГО БАТЧА в ноде и
+кнопкой "Save now" НАД КАЖДЫМ изображением.
+Два режима работы:
+- save_image=True  → пишет все изображения батча в output сразу + превью;
+- save_image=False → пишет только временные превью (preview-only, без мусора
+  в output); кнопка "Save now" над каждым изображением сохраняет его в
+  output по требованию с текущими настройками виджетов (формат, качество,
+  путь, вшивание воркфлоу).
+Превью: для каждого изображения батча пишется temp-PNG и отдаётся в
+ui.agsoft_previews (фронтенд этот ключ не рисует — превью и кнопки строит
+JS). Сетка превью адаптивная и вписывается в текущий размер ноды.
+Выходы (как в AGSoft Image & Mask Resize Plus):
+IMAGE (проход), width, height (первого изображения), filename, saved_path
+(для батча — через запятую).
+Поддерживает PNG/JPG/WebP/BMP с раздельными настройками сжатия/качества,
+подпапки (output_path) и подпапку с датой (create_dated_subfolder),
+вшивание workflow в PNG (tEXt-чанки) и отдельный .json для JPG/WebP/BMP.
+
+Extended image saver with a PREVIEW OF THE WHOLE BATCH inside the node and
+a "Save now" button OVER EACH image.
+Two modes:
+- save_image=True  → writes all batch images to output immediately + preview;
+- save_image=False → writes temp previews only (no clutter in output); the
+  "Save now" button over each image saves it to output on demand with the
+  current widget settings (format, quality, path, workflow embedding).
+Preview: a temp PNG is written for each batch image and returned in
+ui.agsoft_previews (the frontend does not render this key — the JS builds
+the previews and buttons). The preview grid is adaptive and fits the
+current node size.
+Outputs (like AGSoft Image & Mask Resize Plus):
+IMAGE (passed through), width, height (of the first image), filename,
+saved_path (comma-joined for batches).
+Supports PNG/JPG/WebP/BMP with per-format compression/quality settings,
+subfolders (output_path) and a dated subfolder (create_dated_subfolder),
+workflow embedding into PNG (tEXt chunks) and a separate .json for
+JPG/WebP/BMP.
+
+Возможности / Features:
+⚡ Превью всего батча в ноде + кнопка "Save now" над каждым изображением.
+   Whole-batch preview in the node + a "Save now" button over each image.
+⚡ Два режима: save_image=True (весь батч в output) / False (только temp).
+   Two modes: save_image=True (whole batch to output) / False (temp only).
+⚡ Выходы как в Image Resize Plus: images / width / height / filename / saved_path.
+   Outputs like Image Resize Plus: images / width / height / filename / saved_path.
+⚡ PNG/JPG/WebP/BMP с раздельными настройками сжатия/качества.
+   PNG/JPG/WebP/BMP with per-format compression/quality settings.
+⚡ Подпапки (output_path) + подпапка с датой (create_dated_subfolder).
+   Subfolders (output_path) + dated subfolder (create_dated_subfolder).
+⚡ Вшивание workflow: PNG tEXt / отдельный .json для JPG/WebP/BMP.
+   Workflow embedding: PNG tEXt / separate .json for JPG/WebP/BMP.
+⚡ Кнопка "Save now" шлёт воркфлоу из браузера (app.graph.serialize()).
+   The "Save now" button sends the workflow from the browser (app.graph.serialize()).
+⚡ Адаптивная сетка превью на канвасе, вписывается в размер ноды (JS).
+   Adaptive canvas preview grid fitted into the node size (JS).
+⚡ OUTPUT_NODE=True, IS_CHANGED, VALIDATE_INPUTS.
+   OUTPUT_NODE=True, IS_CHANGED, VALIDATE_INPUTS.
+⚡ Строка размера W×H под каждым превью + кнопки 📂//⬇ и правый клик
+   (Open/Copy/Save Image) как в Preview Image.
+   W×H size line under each preview + 📂//⬇ buttons and right-click menu
+   (Open/Copy/Save Image) like Preview Image.
+⚡ Уникальные temp-имена (uuid) — превью корректны при нескольких нодах.
+   Unique temp names (uuid) — previews stay correct with several nodes.
+⚡ v25.09.3: спойлер-стрелка — все виджеты настроек сворачиваются (▲ =
+   свёрнуто, ▼ = развернуто); состояние хранится у каждой ноды в
+   node.properties и переживает перезагрузку; НОВАЯ нода создаётся
+   полностью развёрнутой (реализовано в JS).
+   Spoiler arrow — all settings widgets collapse (▲ = collapsed,
+   ▼ = expanded); state is stored per node in node.properties and survives
+   reloads; a NEW node is created fully expanded (implemented in JS).
+⚡ v25.09.3: информационная полоса над превью [⚙ режим • формат • число
+   превью + подсказка ......... ▼] — заполняет пустое место слева от
+   стрелки; клик по всей полосе сворачивает/разворачивает настройки;
+   надпись живая (обновляется после выполнения и при смене виджетов).
+   Info bar over the preview [⚙ mode • format • preview count + hint .... ▼]
+   fills the empty space left of the arrow; clicking anywhere on the bar
+   collapses/expands the settings; the label is live (updates after
+   execution and on widget changes).
+
+Автор / Author: AGSoft
+Дата / Date: 25.09.2026
+==============================================================================
+"""
 
 import os
 import re
@@ -100,7 +111,7 @@ logger = logging.getLogger(__name__)
 
 # Маркер версии: если этой строки нет в консоли после старта — файл не применился.
 # Version marker: if this line is not in console after startup — file was not applied.
-# print("[AGSoft Save Image Plus] v20.08.2 loaded (size label + open/copy/download + unique temp names for multi-node workflows)")
+# print("[AGSoft Save Image Plus] v25.09.3 loaded (size label + open/copy/download + unique temp names for multi-node workflows)")
 
 # ------------------------------------------------------------------------------
 # Форматы и их параметры по умолчанию.
@@ -532,8 +543,10 @@ class AGSoftSaveImagePlus:
         "W×H size line under each preview; [📂][][⬇] buttons over the preview and right-"
         "click menu (Open/Copy/Save Image) like Preview Image; unique temp names keep previews "
         "correct with several saver nodes in one workflow.\n"
+        "Settings widgets collapse under the arrow button; the info bar over the preview shows "
+        "save mode, format and preview count — click the bar to collapse/expand.\n"
         "---\n"
-        "🖼️💾 AGSoft Save Image Plus.\n"
+        "🖼️ AGSoft Save Image Plus.\n"
         "Расширенная нода сохранения с ПРЕВЬЮ ВСЕГО БАТЧА в ноде и кнопкой 'Save now' НАД "
         "КАЖДЫМ изображением.\n"
         "Два режима: save_image=True — весь батч в output сразу; save_image=False — только "
@@ -543,9 +556,11 @@ class AGSoftSaveImagePlus:
         "запятую) — как в AGSoft Image & Mask Resize Plus.\n"
         "PNG/JPG/WebP/BMP с раздельным сжатием/качеством, подпапки, подпапка с датой, вшивание "
         "workflow (PNG tEXt / отдельный .json для остальных).\n"
-        "строка размера W×H под каждым превью; кнопки [📂][][⬇] над превью и правый клик "
+        "Строка размера W×H под каждым превью; кнопки [📂][][⬇] над превью и правый клик "
         "по превью (Open Image / Copy Image / Save Image) как в Preview Image; уникальные temp-"
         "имена — превью корректны при нескольких нодах в одном воркфлоу.\n"
+        "Виджеты настроек сворачиваются кнопкой-стрелкой; информационная полоса над превью "
+        "показывает режим, формат и число превью — клик по полосе сворачивает/разворачивает."
     )
 
     def save_image_plus(
