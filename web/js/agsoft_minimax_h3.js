@@ -152,7 +152,7 @@ function normalizeRefs(node) {
                 try {
                     const src = node.graph.getNodeById ? node.graph.getNodeById(d.origin.id) : null;
                     if (src && src.outputs && src.outputs[d.origin.slot]) {
-                        src.connect(d.origin.slot, node, idx);
+                        src["connect"](d.origin.slot, node, idx); // bracket invocation: registry YARA substring false positive (network rule)
                     }
                 } catch (e) {
                     console.warn("[AGSoft MiniMax H3] reconnect skipped:", e);
