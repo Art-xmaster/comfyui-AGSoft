@@ -201,7 +201,13 @@ app.registerExtension({
         ctrl.appendChild(barWrap);
         const fileInput = document.createElement("input");
         fileInput.type = "file"; fileInput.accept = "image/*"; fileInput.multiple = true; fileInput.style.display = "none";
-        fileInput.onchange = () => agsoftUploadFiles(node, fileInput.files, null);
+        fileInput.onchange = () => {
+            // Копия списка + сброс value: повторный выбор того же файла сработает.
+            // Copy the list + reset value: re-picking the same file fires again.
+            const files = Array.from(fileInput.files);
+            fileInput.value = "";
+            agsoftUploadFiles(node, files, null);
+        };
         const btn = (txt, fn) => {
             const b = document.createElement("button");
             b.textContent = txt;
