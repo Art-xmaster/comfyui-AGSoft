@@ -440,12 +440,18 @@ class AGSoft_Image_Stitch_Plus:
         return image1, image2
 
     def _unify_list(self, images):
-        base = images[0]
-        unified = [base]
-        for img in images[1:]:
-            base, img = self.ensure_same_channels(base, img)
+        # Два прохода: сначала максимум каналов по всему списку, затем паддинг
+        # каждого тензора до него. Иначе RGBA-файл с индексом >=2 оставляет
+        # ранние тензоры 3-канальными, и torch.cat в stitch_grid падает.
+        # Two passes: first the max channel count over the whole list, then pad
+        # every tensor to it. Otherwise an RGBA file at index >=2 leaves earlier
+        # tensors at 3 channels and torch.cat in stitch_grid crashes.
+        max_channels = max(img.shape[-1] for img in images)
+        unified = []
+        for img in images:
+            if img.shape[-1] < max_channels:
+                img = torch.cat([img, torch.ones(*img.shape[:-1], max_channels - img.shape[-1], device=img.device)], dim=-1)
             unified.append(img)
-        unified[0] = base
         max_batch = max(img.shape[0] for img in unified)
         fixed = []
         for img in unified:
