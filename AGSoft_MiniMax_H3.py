@@ -3,7 +3,7 @@
 AGSoft_MiniMax_H3.py
 ==============================================================================
 Ноды / Nodes: 🎬AGSoft MiniMax H3 Ref2V, 🎬AGSoft MiniMax H3 I2V
-Версия / Version: v09.27
+Версия / Version: v09.44
 Описание / Description:
 Пара нод кондиционирования для MiniMax H3 (ref2va / t2va+fl2va) с полным
 локальным воспроизведением логики нативных нодов ComfyUI и калькулятором
@@ -73,7 +73,7 @@ from comfy.ldm.minimax.model import FRAME_PER_TOKEN, FRAME_RESCALE
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-# print("[AGSoft MiniMax H3] v09.27 loaded (Ref2V + I2V, unified detailed docs and tooltips)")
+# print("[AGSoft MiniMax H3] v09.44 loaded (Ref2V + I2V, unified detailed docs and tooltips)")
 #========================================================================
 # Константы H3 / H3 constants
 #========================================================================
@@ -143,6 +143,91 @@ def _resize(image, width, height, crop):
     samples = image[..., :3].movedim(-1, 1)
     samples = comfy.utils.common_upscale(samples, width, height, "lanczos", crop)
     return samples.movedim(1, -1)
+
+def _video_to_frames(video):
+    """
+    Приводит вход VIDEO к тензору кадров [F, H, W, C] независимо от API ComfyUI:
+    • новый API (comfy_api) — объект VideoFromFile с методом get_components(),
+      возвращающим VideoComponents(images, audio, frame_rate, metadata, alpha);
+    • старый API — сырой тензор [F, H, W, C] или [B, F, H, W, C];
+    • dict-стиль (очень старые версии).
+    Normalizes a VIDEO input to a [F, H, W, C] frames tensor regardless of
+    the ComfyUI API: new API (comfy_api) — a VideoFromFile object with
+    get_components() returning VideoComponents(images, audio, frame_rate,
+    metadata, alpha); old API — a raw [F, H, W, C] or [B, F, H, W, C] tensor;
+    dict-style (very old versions).
+    """
+    t = None
+    # 1) Новый comfy_api: VideoFromFile / VideoFromComponents / VideoFromList.
+    # У всех есть get_components() → VideoComponents с images/audio/frame_rate.
+    # New comfy_api: VideoFromFile / VideoFromComponents / VideoFromList.
+    # All have get_components() → VideoComponents with images/audio/frame_rate.
+    gc = getattr(video, "get_components", None)
+    if callable(gc):
+        try:
+            comp = gc()
+            if comp is not None:
+                # VideoComponents: атрибуты images / audio / frame_rate / metadata / alpha
+                # VideoComponents: attributes images / audio / frame_rate / metadata / alpha
+                imgs = getattr(comp, "images", None)
+                if isinstance(imgs, torch.Tensor):
+                    t = imgs
+        except Exception as e:
+            logger.warning(f"[AGSoft MiniMax H3] get_components failed: {e}")
+    # 2) Сырой тензор / raw tensor
+    if t is None and isinstance(video, torch.Tensor):
+        t = video
+    # 3) Dict-стиль (очень старые версии) / dict-style (very old versions)
+    if t is None and isinstance(video, dict):
+        for key in ("images", "pixels", "frames"):
+            if isinstance(video.get(key), torch.Tensor):
+                t = video[key]
+                break
+    if t is None:
+        pub = [n for n in dir(video) if not n.startswith("_")]
+        raise TypeError(
+            f"Unsupported VIDEO input type: {type(video).__name__}; attrs: {pub}"
+        )
+    if t.dim() == 5:  # [B, F, H, W, C] → [F, H, W, C]
+        t = t.reshape(t.shape[0] * t.shape[1], *t.shape[2:])
+    # Нормализация диапазона: uint8 или 0..255 → float 0..1.
+    # Range normalization: uint8 or 0..255 → float 0..1.
+    t = t.detach().cpu()
+    if t.dtype != torch.float32:
+        t = t.float()
+    if t.max() > 1.5:
+        t = t / 255.0
+    return t
+
+
+def _video_get_audio(video):
+    """
+    Извлекает встроенный аудио-трек из VIDEO-объекта нового comfy_api
+    (VideoFromFile.get_components().audio → dict {'waveform': tensor,
+    'sample_rate': int}). Для старого API / тензора / dict возвращает None.
+    Используется как запасной саундтрек, когда ref_video_audio_N не подключен.
+    Extracts the embedded audio track from a new comfy_api VIDEO object
+    (VideoFromFile.get_components().audio → dict {'waveform': tensor,
+    'sample_rate': int}). Returns None for old API / tensor / dict.
+    Used as a fallback soundtrack when ref_video_audio_N is not connected.
+    """
+    gc = getattr(video, "get_components", None)
+    if not callable(gc):
+        return None
+    try:
+        comp = gc()
+        if comp is None:
+            return None
+        audio = getattr(comp, "audio", None)
+        if audio and isinstance(audio, dict):
+            wf = audio.get("waveform")
+            sr = audio.get("sample_rate")
+            if isinstance(wf, torch.Tensor) and isinstance(sr, (int, float)):
+                return {"waveform": wf, "sample_rate": int(sr)}
+    except Exception as e:
+        logger.warning(f"[AGSoft MiniMax H3] get_components audio failed: {e}")
+    return None
+
 def _encode_ref_audio(audio_vae, audio):
     """
     Ресемплирует аудио до частоты audio_vae и кодирует в латент (32 канала).
@@ -541,6 +626,16 @@ class AGSoft_MiniMax_H3_Ref2V:
             video_frames = refs.get(f"ref_video_{i}")
             if video_frames is None: continue
             soundtrack = refs.get(f"ref_video_audio_{i}")
+            video_frames = _video_to_frames(video_frames)
+            vh, vw = video_frames.shape[1], video_frames.shape[2]
+            video_frames = _video_to_frames(video_frames)
+            # Запасной саундтрек: встроенный аудио-трек самого видео, если
+            # ref_video_audio_N не подключен. Fallback soundtrack: the video's
+            # own embedded audio track when ref_video_audio_N is not connected.
+            if soundtrack is None:
+                embedded = _video_get_audio(refs.get(f"ref_video_{i}"))
+                if embedded is not None:
+                    soundtrack = embedded
             vh, vw = video_frames.shape[1], video_frames.shape[2]
             cw, ch = adapt_canvas(vw, vh)
             if vw * vh < cw * ch:
