@@ -220,7 +220,7 @@ class AGSoft_MiniMax_Base:
         "count from Seconds or Frames aligned UP to 17N+5; orientation invert in all "
         "modes; duration_seconds output = exact duration (total_frames / 24); "
         "copy_options chain passes all parameters to followers; live info line: "
-        "⚙ W×H • MP • ~aspect • frames • exact sec."
+        "⚙ W×H • MP • ~aspect • frames • exact sec.\n"
         "---\n"
         "Калькулятор параметров видео для MiniMax H3: ширина/высота кратны 32 "
         "(Preset — 41 готовый размер, Custom — свои W/H, Megapixels — MP + соотношение); "
