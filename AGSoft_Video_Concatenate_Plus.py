@@ -460,10 +460,10 @@ def build_filter_complex(
                 f"Стык {i + 1}: transition='{current_transition}', "
                 f"duration={current_duration:.3f}, offset={offset:.3f}"
             )
-            
+
             last_v = next_v
             last_a = next_a
-            
+
             previous_mix_duration = previous_mix_duration + next_duration - current_duration
 
         total_duration = previous_mix_duration
