@@ -394,7 +394,8 @@ app.registerExtension({
             }
 
             // Персистентность: строка последней генерации в JSON воркфлоу.
-            const baseSerialize = node.serialize.bind(node);
+            const origSerialize = node.serialize;
+            const baseSerialize = () => origSerialize.call(node);
             node.serialize = function () {
                 const o = baseSerialize();
                 try {
