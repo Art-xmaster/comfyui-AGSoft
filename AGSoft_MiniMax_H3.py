@@ -1,9 +1,7 @@
 """
-==============================================================================
 AGSoft_MiniMax_H3.py
-==============================================================================
 Ноды / Nodes: 🎬AGSoft MiniMax H3 Ref2V, 🎬AGSoft MiniMax H3 I2V
-Версия / Version: v09.44
+Версия / Version: v09.48
 Описание / Description:
 Пара нод кондиционирования для MiniMax H3 (ref2va / t2va+fl2va) с полным
 локальным воспроизведением логики нативных нодов ComfyUI и калькулятором
@@ -11,21 +9,21 @@ AGSoft_MiniMax_H3.py
 (5, 22, 39, ...), FPS фиксирован 24, длительность задаётся в секундах
 (Seconds) или кадрах (Frames).
 Ref2V кодирует промпт вместе с презентацией референсов (изображения,
-видео, парные аудиодорожки, отдельные аудио) и передаёт DiT блоки
-minimax_refs; I2V работает с текстом и опциональными первым/последним
-кадрами (minimax_keyframes). Обе ноды отдают пустой совместный AV-латент
-(видео 24 канала + аудио 32 канала) рассчитанного размера.
----
+видео ПОТОКОМ КАДРОВ (IMAGE), парные аудиодорожки, отдельные аудио) и
+передаёт DiT блоки minimax_refs; I2V работает с текстом и опциональными
+первым/последним кадрами (minimax_keyframes). Обе ноды отдают пустой
+совместный AV-латент (видео 24 канала + аудио 32 канала) рассчитанного
+размера.
 A pair of conditioning nodes for MiniMax H3 (ref2va / t2va+fl2va) with a
 full local re-implementation of the native ComfyUI nodes' logic plus the
 AGSoft parameter calculator: sizes are multiples of 32, frame count follows
 the 17N+5 sequence (5, 22, 39, ...), FPS is fixed at 24, duration is set in
 seconds (Seconds) or frames (Frames).
 Ref2V encodes the prompt together with the reference presentation (images,
-videos, paired soundtracks, standalone audio) and passes minimax_refs blocks
-to the DiT; I2V works with text and optional first/last keyframes
-(minimax_keyframes). Both nodes output an empty joint AV latent (24-channel
-video + 32-channel audio) of the calculated size.
+videos as FRAME STREAMS (IMAGE), paired soundtracks, standalone audio) and
+passes minimax_refs blocks to the DiT; I2V works with text and optional
+first/last keyframes (minimax_keyframes). Both nodes output an empty joint
+AV latent (24-channel video + 32-channel audio) of the calculated size.
 Возможности / Features:
 ⚡ Полная локальная логика H3: кодирование рефов через VAE/audio_vae,
    токенизация с minimax_ref_items, кондиционирование minimax_refs /
@@ -34,32 +32,43 @@ video + 32-channel audio) of the calculated size.
    minimax_ref_items, minimax_refs / minimax_keyframes conditioning, empty
    AV latent (video+audio NestedTensor).
 ⚡ Калькулятор: Preset (40 размеров) / Custom / Megapixels + Seconds/Frames,
-   кратность 32, кадры 17N+5, FPS 24, инверсия сторон в Preset/Custom.
+   кратность 32, кадры 17N+5, FPS 24, инверсия сторон во ВСЕХ режимах
+   (в Megapixels меняет местами расчётный размер) — как в 🎬AGSoft MiniMax Base.
    Calculator: Preset (40 sizes) / Custom / Megapixels + Seconds/Frames,
-   multiples of 32, 17N+5 frames, FPS 24, orientation invert in Preset/Custom.
-⚡ Ref2V: динамические входы рефов по группам (image до 10, video до 3,
-   video_audio до 3, audio до 10): подключение к последнему слоту группы
-   создаёт следующий, отключение последнего подключённого тримит лишний.
-   Ref2V: dynamic ref inputs per group (image up to 10, video up to 3,
-   video_audio up to 3, audio up to 10): connecting the last slot of a group
-   creates the next one, disconnecting the last connected trims the extra.
+   multiples of 32, 17N+5 frames, FPS 24, orientation invert in ALL modes
+   (in Megapixels it swaps the computed size) — same as 🎬AGSoft MiniMax Base.
+⚡ Выход duration_seconds — точная длительность клипа (total_frames / 24),
+   как в 🎬AGSoft MiniMax Base.
+   duration_seconds output — exact clip duration (total_frames / 24),
+   same as 🎬AGSoft MiniMax Base.
+⚡ vae / audio_vae опциональны (1:1 с нативом): без VAE рефы кондиционируют
+   только текст-энкодер (без блоков minimax_refs / minimax_keyframes).
+   vae / audio_vae are optional (1:1 with native): without VAE the refs only
+   condition the text encoder (no minimax_refs / minimax_keyframes blocks).
+⚡ Ref2V: динамические входы рефов по группам, лимиты 1:1 с нативом
+   (image до 9, video до 3, video_audio до 3, audio до 3); ref_video_N —
+   тип IMAGE (поток кадров) 1:1 с нативом: подключаются кадры, а не объект
+   VIDEO; защитная нормализация тензора [F,H,W,C] и диапазона 0..1.
+   Ref2V: dynamic ref inputs per group with native limits (image up to 9,
+   video up to 3, video_audio up to 3, audio up to 3); ref_video_N is IMAGE
+   type (frame stream) 1:1 with native: frames connect, not a VIDEO object;
+   defensive normalization of the [F,H,W,C] tensor and 0..1 range.
 ⚡ I2V: first_frame (stretch до холста) и last_frame (cover-crop с центром),
    режим чистого text-to-video без кадров.
    I2V: first_frame (stretch to canvas) and last_frame (center cover-crop),
    plus a pure text-to-video mode without frames.
 ⚡ Автоскрытие неиспользуемых виджетов калькулятора по режимам (JS),
-   высота ноды подгоняется под видимые виджеты, prompt растягивается до низа.
-   Auto-hiding of unused calculator widgets per mode (JS), node height fits
-   the visible widgets, the prompt stretches to the bottom.
-⚡ Живая инфострока (DOM-виджет 18px между последним combo и prompt):
-   ⚙ W×H • сек • кадры; пересчитывается при любом изменении виджетов.
-   Live info line (18px DOM widget between the last combo and the prompt):
-   ⚙ W×H • sec • frames; recomputed on any widget change.
+   invert_orientation виден во всех режимах, высота ноды подгоняется под
+   видимые виджеты, prompt растягивается до низа.
+   Auto-hiding of unused calculator widgets per mode (JS), invert_orientation
+   visible in all modes, node height fits the visible widgets, the prompt
+   stretches to the bottom.
+⚡ Живая инфострока как в Base: ⚙ W×H • MP • ~формат • кадры • точные сек.
+   Live info line same as Base: ⚙ W×H • MP • ~aspect • frames • exact sec.
 ⚡ ref_image_size строго match/max — обязательные значения combo H3.
    ref_image_size strictly match/max — the required H3 combo values.
 Автор / Author: AGSoft
-Дата / Date: 27.09.2026
-==============================================================================
+Дата / Date: 09.10.2026
 """
 import math
 import torch
@@ -73,7 +82,7 @@ from comfy.ldm.minimax.model import FRAME_PER_TOKEN, FRAME_RESCALE
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-# print("[AGSoft MiniMax H3] v09.44 loaded (Ref2V + I2V, unified detailed docs and tooltips)")
+#print("[AGSoft MiniMax H3] v09.48 loaded (ref_video = IMAGE frame stream, Base-style live line)")
 #========================================================================
 # Константы H3 / H3 constants
 #========================================================================
@@ -87,18 +96,10 @@ REF_IMAGE_SHORT_EDGE = 2048
 # Утилиты калькулятора / Calculator utilities
 #========================================================================
 def fit_to_multiple(value: int, multiple: int = 32) -> int:
-    """
-    Подгоняет значение к ближайшему большему числу, кратному multiple.
-    Rounds value UP to the nearest multiple of multiple.
-    100 → 128, 128 → 128, 33 → 64
-    """
+    """Округляет ВВЕРХ до кратного multiple / Rounds UP to a multiple. 100 → 128."""
     return ((value + multiple - 1) // multiple) * multiple
 def fit_length_to_17n5(value: int) -> int:
-    """
-    Подгоняет число под последовательность: 5, 22, 39, 56, 73... (17*N+5).
-    Aligns value UP to the sequence: 5, 22, 39, 56, 73... (17*N+5).
-    5 → 5, 100 → 107, 240 → 243
-    """
+    """Выравнивает ВВЕРХ до 17N+5 (5, 22, 39, ...) / Aligns UP to 17N+5. 100 → 107."""
     v = max(5, int(value))
     return v + (5 - v % 17) % 17
 #========================================================================
@@ -143,91 +144,43 @@ def _resize(image, width, height, crop):
     samples = image[..., :3].movedim(-1, 1)
     samples = comfy.utils.common_upscale(samples, width, height, "lanczos", crop)
     return samples.movedim(1, -1)
-
 def _video_to_frames(video):
     """
-    Приводит вход VIDEO к тензору кадров [F, H, W, C] независимо от API ComfyUI:
-    • новый API (comfy_api) — объект VideoFromFile с методом get_components(),
-      возвращающим VideoComponents(images, audio, frame_rate, metadata, alpha);
-    • старый API — сырой тензор [F, H, W, C] или [B, F, H, W, C];
-    • dict-стиль (очень старые версии).
-    Normalizes a VIDEO input to a [F, H, W, C] frames tensor regardless of
-    the ComfyUI API: new API (comfy_api) — a VideoFromFile object with
-    get_components() returning VideoComponents(images, audio, frame_rate,
-    metadata, alpha); old API — a raw [F, H, W, C] or [B, F, H, W, C] tensor;
-    dict-style (very old versions).
+    Приводит вход ref_video_N к тензору кадров [F, H, W, C]: штатно приходит
+    IMAGE-тензор; защитно поддерживается и объект VideoFromFile нового API
+    (get_components()/get_pixels()). Normalizes the ref_video_N input to a
+    [F, H, W, C] frames tensor: normally an IMAGE tensor arrives; a new-API
+    VideoFromFile object (get_components()/get_pixels()) is supported
+    defensively.
     """
     t = None
-    # 1) Новый comfy_api: VideoFromFile / VideoFromComponents / VideoFromList.
-    # У всех есть get_components() → VideoComponents с images/audio/frame_rate.
-    # New comfy_api: VideoFromFile / VideoFromComponents / VideoFromList.
-    # All have get_components() → VideoComponents with images/audio/frame_rate.
-    gc = getattr(video, "get_components", None)
-    if callable(gc):
-        try:
-            comp = gc()
-            if comp is not None:
-                # VideoComponents: атрибуты images / audio / frame_rate / metadata / alpha
-                # VideoComponents: attributes images / audio / frame_rate / metadata / alpha
-                imgs = getattr(comp, "images", None)
-                if isinstance(imgs, torch.Tensor):
-                    t = imgs
-        except Exception as e:
-            logger.warning(f"[AGSoft MiniMax H3] get_components failed: {e}")
-    # 2) Сырой тензор / raw tensor
-    if t is None and isinstance(video, torch.Tensor):
+    if isinstance(video, torch.Tensor):
         t = video
-    # 3) Dict-стиль (очень старые версии) / dict-style (very old versions)
-    if t is None and isinstance(video, dict):
-        for key in ("images", "pixels", "frames"):
-            if isinstance(video.get(key), torch.Tensor):
-                t = video[key]
-                break
+    else:
+        gc = getattr(video, "get_components", None)
+        if callable(gc):
+            try:
+                comp = gc()
+                if comp is not None:
+                    imgs = getattr(comp, "images", None)
+                    if isinstance(imgs, torch.Tensor):
+                        t = imgs
+            except Exception as e:
+                logger.warning(f"[AGSoft MiniMax H3] get_components failed: {e}")
+        if t is None and hasattr(video, "get_pixels"):
+            t = video.get_pixels()
+        if t is None and isinstance(video, dict):
+            t = video.get("images") or video.get("pixels")
     if t is None:
-        pub = [n for n in dir(video) if not n.startswith("_")]
-        raise TypeError(
-            f"Unsupported VIDEO input type: {type(video).__name__}; attrs: {pub}"
-        )
+        raise TypeError(f"Unsupported ref_video input type: {type(video).__name__}")
     if t.dim() == 5:  # [B, F, H, W, C] → [F, H, W, C]
         t = t.reshape(t.shape[0] * t.shape[1], *t.shape[2:])
-    # Нормализация диапазона: uint8 или 0..255 → float 0..1.
-    # Range normalization: uint8 or 0..255 → float 0..1.
     t = t.detach().cpu()
     if t.dtype != torch.float32:
         t = t.float()
     if t.max() > 1.5:
         t = t / 255.0
     return t
-
-
-def _video_get_audio(video):
-    """
-    Извлекает встроенный аудио-трек из VIDEO-объекта нового comfy_api
-    (VideoFromFile.get_components().audio → dict {'waveform': tensor,
-    'sample_rate': int}). Для старого API / тензора / dict возвращает None.
-    Используется как запасной саундтрек, когда ref_video_audio_N не подключен.
-    Extracts the embedded audio track from a new comfy_api VIDEO object
-    (VideoFromFile.get_components().audio → dict {'waveform': tensor,
-    'sample_rate': int}). Returns None for old API / tensor / dict.
-    Used as a fallback soundtrack when ref_video_audio_N is not connected.
-    """
-    gc = getattr(video, "get_components", None)
-    if not callable(gc):
-        return None
-    try:
-        comp = gc()
-        if comp is None:
-            return None
-        audio = getattr(comp, "audio", None)
-        if audio and isinstance(audio, dict):
-            wf = audio.get("waveform")
-            sr = audio.get("sample_rate")
-            if isinstance(wf, torch.Tensor) and isinstance(sr, (int, float)):
-                return {"waveform": wf, "sample_rate": int(sr)}
-    except Exception as e:
-        logger.warning(f"[AGSoft MiniMax H3] get_components audio failed: {e}")
-    return None
-
 def _encode_ref_audio(audio_vae, audio):
     """
     Ресемплирует аудио до частоты audio_vae и кодирует в латент (32 канала).
@@ -294,94 +247,40 @@ PRESET_MAP = {
 }
 ASPECT_RATIOS = ["1:1 ", "3:2 ", "2:3 ", "4:3 ", "3:4 ", "16:9 ", "9:16 ", "21:9 ", "9:21 "]
 #========================================================================
-# Подробные двуязычные тултипы калькулятора / Detailed bilingual tooltips
+# Краткие двуязычные тултипы калькулятора / Concise bilingual tooltips
 #========================================================================
 _T = lambda en, ru: en + "\n---\n" + ru
 CALC_TOOLTIPS = {
     "mode": _T(
-        "Frame size selection mode. Unused widgets of the inactive modes are hidden automatically (JS).\n\n"
-        "• Preset — choose from 40 predefined sizes grouped by aspect ratio (1:1, 3:2, 4:3, 16:9). All sizes are already multiples of 32. Invert orientation supported.\n"
-        "• Custom — manually enter width and height in pixels; values are rounded UP to the nearest multiple of 32 (100 → 128). Invert orientation supported.\n"
-        "• Megapixels — specify target resolution in megapixels plus aspect ratio; width/height are computed automatically and rounded to multiples of 32. Invert orientation NOT applied (the ratio defines orientation).\n",
-        "Режим выбора размера кадра. Неиспользуемые виджеты неактивных режимов скрываются автоматически (JS).\n\n"
-        "• Preset — выбор из 40 готовых размеров по соотношениям сторон (1:1, 3:2, 4:3, 16:9). Все размеры уже кратны 32. Инверсия сторон работает.\n"
-        "• Custom — ручной ввод ширины и высоты в пикселях; значения округляются ВВЕРХ до кратности 32 (100 → 128). Инверсия сторон работает.\n"
-        "• Megapixels — целевое разрешение в мегапикселях плюс соотношение сторон; ширина/высота считаются автоматически и округляются до кратности 32. Инверсия НЕ применяется (соотношение задаёт ориентацию)."
-    ),
+        "Frame size mode: Preset (predefined), Custom (own W/H), Megapixels (MP + ratio). Unused widgets hide automatically.",
+        "Режим размера кадра: Preset (готовые), Custom (свои W/H), Megapixels (MP + соотношение). Лишние виджеты скрываются автоматически."),
     "preset": _T(
-        "Predefined frame size with an aspect ratio label, format WIDTH×HEIGHT (ASPECT).\n\n"
-        "Examples: 1024×1024 (1:1) square; 1280×704 (16:9) HD landscape; 1536×1024 (3:2) photo.\n"
-        "All sizes are multiples of 32 — safe for MiniMax H3. Use invert_orientation to swap width↔height (e.g. 1280×704 → 704×1280 vertical).\n",
-        "Готовый размер кадра с меткой соотношения сторон, формат ШИРИНА×ВЫСОТА (СООТНОШЕНИЕ).\n\n"
-        "Примеры: 1024×1024 (1:1) квадрат; 1280×704 (16:9) HD горизонталь; 1536×1024 (3:2) фото.\n"
-        "Все размеры кратны 32 — безопасно для MiniMax H3. Используйте invert_orientation для смены ширины↔высоты (например 1280×704 → 704×1280 вертикально)."
-    ),
+        "Predefined size WIDTH×HEIGHT (aspect), all multiples of 32. invert_orientation swaps W/H.",
+        "Готовый размер ШИРИНА×ВЫСОТА (соотношение), все кратны 32. invert_orientation меняет W/H местами."),
     "invert_orientation": _T(
-        "Swap width and height values.\n\n"
-        "Use cases: quick vertical video from a landscape preset (1280×704 → 704×1280); swapping custom dimensions without re-entering values.\n"
-        "Works in Preset and Custom modes; NOT applied in Megapixels (the aspect ratio already defines orientation).\n",
-        "Поменять ширину и высоту местами.\n\n"
-        "Сценарии: быстрое вертикальное видео из горизонтального пресета (1280×704 → 704×1280); смена своих размеров без повторного ввода.\n"
-        "Работает в режимах Preset и Custom; НЕ применяется в Megapixels (соотношение уже задаёт ориентацию)."
-    ),
+        "Swaps width and height. Works in ALL modes (in Megapixels it swaps the computed size).",
+        "Меняет ширину и высоту местами. Работает во ВСЕХ режимах (в Megapixels — расчётный размер)."),
     "custom_width": _T(
-        "Custom frame width in pixels (Custom mode only).\n\n"
-        "• Rounded UP to the nearest multiple of 32: 100 → 128, 1900 → 1920.\n"
-        "• Range 64–8192, step 32 for convenience.\n",
-        "Своя ширина кадра в пикселях (только режим Custom).\n\n"
-        "• Округляется ВВЕРХ до кратности 32: 100 → 128, 1900 → 1920.\n"
-        "• Диапазон 64–8192, шаг 32 для удобства."
-    ),
+        "Frame width in px (Custom). Rounded UP to a multiple of 32. Range 64–8192, step 32.",
+        "Ширина кадра в px (Custom). Округляется ВВЕРХ до кратности 32. Диапазон 64–8192, шаг 32."),
     "custom_height": _T(
-        "Custom frame height in pixels (Custom mode only).\n\n"
-        "• Rounded UP to the nearest multiple of 32: 100 → 128, 1080 → 1088.\n"
-        "• Range 64–8192, step 32 for convenience.\n",
-        "Своя высота кадра в пикселях (только режим Custom).\n\n"
-        "• Округляется ВВЕРХ до кратности 32: 100 → 128, 1080 → 1088.\n"
-        "• Диапазон 64–8192, шаг 32 для удобства."
-    ),
+        "Frame height in px (Custom). Rounded UP to a multiple of 32. Range 64–8192, step 32.",
+        "Высота кадра в px (Custom). Округляется ВВЕРХ до кратности 32. Диапазон 64–8192, шаг 32."),
     "megapixels_value": _T(
-        "Target resolution in megapixels (Megapixels mode only), range 0.1–8.0, step 0.01.\n\n"
-        "Width/height are computed from the value plus aspect_ratio and rounded to multiples of 32.\n"
-        "Examples: 0.15 MP + 16:9 → ~512×288; 1.0 MP + 1:1 → ~1024×1024; 2.0 MP + 16:9 → ~1920×1088.\n",
-        "Целевое разрешение в мегапикселях (только режим Megapixels), диапазон 0.1–8.0, шаг 0.1.\n\n"
-        "Ширина/высота вычисляются из значения плюс aspect_ratio и округляются до кратности 32.\n"
-        "Примеры: 0.15 MP + 16:9 → ~512×288; 1.0 MP + 1:1 → ~1024×1024; 2.0 MP + 16:9 → ~1920×1088."
-    ),
+        "Target resolution in MP (0.01–8.0, step 0.01). W/H computed from aspect_ratio, multiples of 32.",
+        "Целевое разрешение в MP (0.01–8.0, шаг 0.01). W/H считаются по aspect_ratio, кратны 32."),
     "aspect_ratio": _T(
-        "Target aspect ratio for Megapixels mode: 1:1 square, 3:2 photo, 2:3 vertical photo, 4:3 standard, 3:4 vertical standard, 16:9 widescreen, 9:16 vertical video, 21:9 ultrawide, 9:21 vertical ultrawide.\n\n"
-        "Final size is the closest match to the target MP while keeping this ratio; all sizes are multiples of 32.\n",
-        "Целевое соотношение сторон для режима Megapixels: 1:1 квадрат, 3:2 фото, 2:3 вертикальное фото, 4:3 стандарт, 3:4 вертикальный стандарт, 16:9 широкий экран, 9:16 вертикальное видео, 21:9 сверхширокий, 9:21 вертикальный сверхширокий.\n\n"
-        "Итоговый размер — ближайший к целевым MP при сохранении этого соотношения; все размеры кратны 32."
-    ),
+        "Aspect ratio for Megapixels: 1:1, 3:2, 2:3, 4:3, 3:4, 16:9, 9:16, 21:9, 9:21.",
+        "Соотношение сторон для Megapixels: 1:1, 3:2, 2:3, 4:3, 3:4, 16:9, 9:16, 21:9, 9:21."),
     "frame_count_source": _T(
-        "How the total frame count is set; the inactive source widget hides automatically (JS).\n\n"
-        "• Seconds — automatic: round(sec×24) aligned UP to the 17N+5 sequence (5, 22, 39, 56, ...). 5s → 124 frames, 10s → 243 frames.\n"
-        "• Frames — manual exact count, aligned UP to the same sequence (100 → 107, 124 → 124).\n"
-        "HINT: Seconds for quick setup; Frames for precise control (loops, continuation clips).\n",
-        "Способ задания общего числа кадров; неактивный виджет источника скрывается автоматически (JS).\n\n"
-        "• Seconds — авторасчёт: round(сек×24) с выравниванием ВВЕРХ до последовательности 17N+5 (5, 22, 39, 56, ...). 5 сек → 124 кадра, 10 сек → 243 кадра.\n"
-        "• Frames — ручное точное число кадров с выравниванием ВВЕРХ до той же последовательности (100 → 107, 124 → 124).\n"
-        "СОВЕТ: Seconds для быстрой настройки; Frames для точного контроля (циклы, клипы-продолжения)."
-    ),
+        "Seconds — frames = round(sec×24) aligned UP to 17N+5. Frames — exact count aligned UP to 17N+5.",
+        "Seconds — кадры = round(сек×24) ВВЕРХ до 17N+5. Frames — точное число с выравниванием ВВЕРХ до 17N+5."),
     "length_seconds": _T(
-        "Desired video duration in seconds (used only when frame_count_source = Seconds). Range 1–60, step 1.\n\n"
-        "Frame count = round(sec×24) aligned UP to 17N+5, so the result differs slightly from sec×24 — this is REQUIRED by MiniMax H3.\n"
-        "Examples: 5s → 124 frames, 10s → 243, 15s → 362. Trained H3 range is ~124–362 frames.\n",
-        "Желаемая длительность видео в секундах (используется только при frame_count_source = Seconds). Диапазон 1–60, шаг 1.\n\n"
-        "Число кадров = round(сек×24) с выравниванием ВВЕРХ до 17N+5, поэтому результат немного отличается от сек×24 — это ТРЕБОВАНИЕ MiniMax H3.\n"
-        "Примеры: 5 сек → 124 кадра, 10 сек → 243, 15 сек → 362. Обученный диапазон H3 — ~124–362 кадра."
-    ),
+        "Duration in seconds (1–60, Seconds only). Frames = round(sec×24) aligned UP to 17N+5, so it differs slightly from sec×24.",
+        "Длительность в секундах (1–60, только Seconds). Кадры = round(сек×24) ВВЕРХ до 17N+5, поэтому число немного отличается от сек×24."),
     "frame_count": _T(
-        "Exact frame count (used only when frame_count_source = Frames). Range 5–99999.\n\n"
-        "Aligned UP to the MiniMax H3 sequence 17N+5: 5, 22, 39, 56, 73, 90, 107, 124...\n"
-        "Examples: 100 → 107; 124 → 124 (already valid); 200 → 209.\n"
-        "HINT: typical H3 clips are 124 (5s @24fps) and 243 (10s @24fps).\n",
-        "Точное число кадров (используется только при frame_count_source = Frames). Диапазон 5–99999.\n\n"
-        "Выравнивается ВВЕРХ до последовательности MiniMax H3 17N+5: 5, 22, 39, 56, 73, 90, 107, 124...\n"
-        "Примеры: 100 → 107; 124 → 124 (уже допустимо); 200 → 209.\n"
-        "СОВЕТ: типичные клипы H3 — 124 (5 сек @24fps) и 243 (10 сек @24fps)."
-    ),
+        "Exact frame count (Frames only), aligned UP to 17N+5: 100 → 107, 124 → 124.",
+        "Точное число кадров (только Frames), выравнивается ВВЕРХ до 17N+5: 100 → 107, 124 → 124."),
 }
 def _ref_tip(en, ru):
     return _T(en, ru)
@@ -389,10 +288,7 @@ def _ref_tip(en, ru):
 # Общие виджеты калькулятора для обеих нод / Shared calculator widgets
 #========================================================================
 def _calc_widgets():
-    """
-    Строит required-виджеты калькулятора с подробными тултипами для обеих нод.
-    Builds the required calculator widgets with detailed tooltips for both nodes.
-    """
+    """Строит виджеты калькулятора / Builds the calculator widgets."""
     return {
         "mode": (["Preset", "Custom", "Megapixels"], {"default": "Preset", "tooltip": CALC_TOOLTIPS["mode"]}),
         "preset": (PRESET_LIST, {"default": "1280×704 (16:9)", "tooltip": CALC_TOOLTIPS["preset"]}),
@@ -407,9 +303,8 @@ def _calc_widgets():
     }
 def _calc_size(mode, preset, invert_orientation, custom_width, custom_height,
                megapixels_value, aspect_ratio):
-    """
-    Ширина/высота по режиму калькулятора, кратность 32 / Width/height per calculator mode, multiple of 32
-    """
+    """Ширина/высота по режиму, кратность 32, инверсия во всех режимах.
+    Width/height per mode, multiple of 32, invert in all modes."""
     if mode == "Preset":
         w, h = PRESET_MAP[preset]
         if invert_orientation:
@@ -426,12 +321,12 @@ def _calc_size(mode, preset, invert_orientation, custom_width, custom_height,
         x = math.sqrt(target / (w_r * h_r))
         w = fit_to_multiple(round(w_r * x), 32)
         h = fit_to_multiple(round(h_r * x), 32)
+        if invert_orientation:
+            w, h = h, w
         return max(64, w), max(64, h)
     return 1280, 704
 def _calc_frames(frame_count_source, length_seconds, frame_count):
-    """
-    Число кадров 17N+5 по источнику / Frame count 17N+5 per source
-    """
+    """Число кадров 17N+5 по источнику / Frame count 17N+5 per source."""
     if frame_count_source == "Frames":
         total = fit_length_to_17n5(frame_count)
     else:
@@ -445,169 +340,106 @@ class AGSoft_MiniMax_H3_Ref2V:
     FUNCTION = "main"
     WEB_DIRECTORY = "./web"
     DESCRIPTION = (
-        "AGSoft MiniMax H3 Ref2V — local Reference-to-Video conditioning for MiniMax H3 "
-        "with the AGSoft parameter calculator.\n"
-        "Pipeline: empty joint AV latent (video 24ch + audio 32ch) of the calculated size; "
-        "reference images resized per ref_image_size (match = down-only to the generation pixel "
-        "area, max = 2048px short edge) and encoded by the video VAE; reference videos adapted to "
-        "the 768-short-edge canvas, trimmed to the generation length and aligned down to 17N+5 "
-        "(min 5 frames), encoded by the video VAE; paired soundtracks (ref_video_audio_N for "
-        "ref_video_N) and standalone audio resampled to the audio VAE rate and encoded; the prompt "
-        "is tokenized together with the reference presentation (minimax_ref_items) and the "
-        "resulting CONDITIONING carries minimax_refs blocks for the DiT.\n"
-        "References enter the prompt by 1-based ordinals per type in connection order: "
-        "ref_image_0 → <Picture 1>, ref_video_0 → <Video 1>, audio → <Audio j> (a video soundtrack "
-        "label is emitted right before its video label).\n"
-        "Ref inputs are dynamic per group (connected+1 slots, JS): image up to 10, video up to 3, "
-        "video_audio up to 3, audio up to 10. Calculator widgets auto-hide per mode; the live info "
-        "line (DOM widget) shows ⚙ W×H • sec • frames between the last combo and the prompt.\n"
-        "Outputs: positive (CONDITIONING), LATENT, width, height, fps_int, fps_float, total_frames.\n"
+        "Local Reference-to-Video conditioning for MiniMax H3 with the AGSoft calculator.\n"
+        "• Size: Preset / Custom / Megapixels, multiples of 32; invert works in ALL modes.\n"
+        "• Frames: Seconds or Frames → 17N+5 sequence, FPS 24; duration_seconds = total/24.\n"
+        "• Refs enter the prompt 1-based per type in connection order: <Picture i>, "
+        "<Video k>, <Audio j>; a video soundtrack label goes right before its video.\n"
+        "• ref_video_N is an IMAGE input (frame stream at 24 fps) — connect frames, "
+        "not a VIDEO object, same as the native node.\n"
+        "• vae / audio_vae are OPTIONAL: without them refs only condition the text encoder.\n"
+        "• ref_image_size: match (down to generation area) / max (2048px short edge, slower).\n"
+        "• Dynamic ref slots (connected+1, JS); live info line ⚙ W×H • MP • ~aspect • frames • exact sec.\n"
         "---\n"
-        "AGSoft MiniMax H3 Ref2V — локальное кондиционирование Reference-to-Video для MiniMax H3 "
-        "с калькулятором параметров AGSoft.\n"
-        "Конвейер: пустой совместный AV-латент (видео 24 канала + аудио 32 канала) рассчитанного "
-        "размера; референс-изображения ресайзятся по ref_image_size (match = только вниз до площади "
-        "генерации, max = короткая сторона 2048px) и кодируются видео-VAE; референс-видео "
-        "приводятся к холсту с короткой стороной 768, обрезаются до длины генерации и выравниваются "
-        "вниз до 17N+5 (минимум 5 кадров), кодируются видео-VAE; парные дорожки (ref_video_audio_N "
-        "для ref_video_N) и отдельные аудио ресемплируются до частоты audio_vae и кодируются; "
-        "промпт токенизируется вместе с презентацией референсов (minimax_ref_items), и итоговый "
-        "CONDITIONING несёт блоки minimax_refs для DiT.\n"
-        "Референсы упоминаются в промпте порядковыми тегами с 1 по типу в порядке подключения: "
-        "ref_image_0 → <Picture 1>, ref_video_0 → <Video 1>, аудио → <Audio j> (метка дорожки видео "
-        "ставится сразу перед меткой своего видео).\n"
-        "Входы рефов динамические по группам (подключено+1 слотов, JS): image до 10, video до 3, "
-        "video_audio до 3, audio до 10. Виджеты калькулятора автоскрываются по режимам; живая "
-        "инфострока (DOM-виджет) показывает ⚙ W×H • сек • кадры между последним combo и prompt.\n"
-        "Выходы: positive (CONDITIONING), LATENT, width, height, fps_int, fps_float, total_frames."
+        "Локальное кондиционирование Reference-to-Video для MiniMax H3 с калькулятором AGSoft.\n"
+        "• Размер: Preset / Custom / Megapixels, кратность 32; инверсия во ВСЕХ режимах.\n"
+        "• Кадры: Seconds или Frames → последовательность 17N+5, FPS 24; duration_seconds = total/24.\n"
+        "• Референсы в промпте с 1 по типу в порядке подключения: <Picture i>, <Video k>, "
+        "<Audio j>; метка дорожки видео ставится сразу перед меткой своего видео.\n"
+        "• ref_video_N — вход IMAGE (поток кадров 24 fps): подключайте кадры, а не объект "
+        "VIDEO, как в нативной ноде.\n"
+        "• vae / audio_vae ОПЦИОНАЛЬНЫ: без них рефы кондиционируют только текст-энкодер.\n"
+        "• ref_image_size: match (вниз до площади генерации) / max (короткая сторона 2048px, медленнее).\n"
+        "• Динамические слоты рефов (подключено+1, JS); живая инфострока "
+        "⚙ W×H • MP • ~формат • кадры • точные сек."
     )
     @classmethod
     def INPUT_TYPES(cls):
-        optional = {}
-        for i in range(10):
+        optional = {
+            "vae": ("VAE", {"tooltip": _ref_tip(
+                "Video VAE (24ch latent). OPTIONAL: without it reference images/videos only condition the text encoder.",
+                "Видео-VAE (24ch латент). ОПЦИОНАЛЕН: без него референс-изображения/видео кондиционируют только текст-энкодер.")}),
+            "audio_vae": ("VAE", {"tooltip": _ref_tip(
+                "Audio VAE (32ch, 40 Hz latent). OPTIONAL: without it reference audio only conditions the text encoder.",
+                "Аудио-VAE (32ch, 40 Гц латент). ОПЦИОНАЛЕН: без него референс-аудио кондиционируют только текст-энкодер.")}),
+        }
+        for i in range(9):
             optional[f"ref_image_{i}"] = ("IMAGE", {"tooltip": _ref_tip(
-                f"Optional reference image #{i+1} in connection order → <Picture {i+1}> in the prompt. "
-                "Downscaled to a 2048px short edge if larger, never upscaled. "
-                "Dynamic group: connecting the last free slot creates the next one (JS).",
-                f"Опциональный референс-изображение #{i+1} в порядке подключения → <Picture {i+1}> в промпте. "
-                "Уменьшается до короткой стороны 2048px если больше, никогда не увеличивается. "
-                "Динамическая группа: подключение к последнему свободному слоту создаёт следующий (JS).")})
+                f"Optional reference image #{i+1} → <Picture {i+1}> in the prompt. Downscaled to 2048px short edge if larger. Dynamic group (connected+1, JS).",
+                f"Опциональный референс-изображение #{i+1} → <Picture {i+1}> в промпте. Уменьшается до короткой стороны 2048px если больше. Динамическая группа (подключено+1, JS).")})
         for i in range(3):
-            optional[f"ref_video_{i}"] = ("VIDEO", {"tooltip": _ref_tip(
-                f"Optional reference video #{i+1} → <Video {i+1}> in the prompt. Frames are treated as "
-                "24 fps, adapted to the 768-short-edge canvas, trimmed to the generation length and "
-                "aligned down to 17N+5 (minimum 5 frames, else error).",
-                f"Опциональный референс-видео #{i+1} → <Video {i+1}> в промпте. Кадры считаются 24 fps, "
-                "приводятся к холсту с короткой стороной 768, обрезаются до длины генерации и "
-                "выравниваются вниз до 17N+5 (минимум 5 кадров, иначе ошибка).")})
+            optional[f"ref_video_{i}"] = ("IMAGE", {"tooltip": _ref_tip(
+                f"Optional reference video #{i+1} as a FRAME STREAM (IMAGE batch at 24 fps, 2–15 s) → <Video {i+1}>. "
+                "Connect frames (IMAGE), not a VIDEO object — same as the native node. "
+                "Adapted to the 768 canvas, trimmed to generation length, aligned down to 17N+5 (min 5).",
+                f"Опциональный референс-видео #{i+1} ПОТОКОМ КАДРОВ (батч IMAGE, 24 fps, 2–15 с) → <Video {i+1}>. "
+                "Подключайте кадры (IMAGE), а не объект VIDEO — как в нативной ноде. "
+                "Приводится к холсту 768, обрезается до длины генерации, выравнивается вниз до 17N+5 (минимум 5).")})
             optional[f"ref_video_audio_{i}"] = ("AUDIO", {"tooltip": _ref_tip(
-                f"Soundtrack paired by index with ref_video_{i} (ref_video_audio_{i} ↔ ref_video_{i}). "
-                "Gets its own <Audio j> label emitted right before its <Video k> label; the text encoder "
-                "sees the video at 2 fps with timestamps. Encoded by the audio VAE when connected.",
-                f"Аудиодорожка, парная по индексу с ref_video_{i} (ref_video_audio_{i} ↔ ref_video_{i}). "
-                "Получает собственную метку <Audio j> сразу перед меткой своего <Video k>; текст-энкодер "
-                "видит видео на 2 fps с таймстампами. Кодируется audio_vae при подключении.")})
-        for i in range(10):
+                f"Soundtrack paired by index with ref_video_{i}. Gets its own <Audio j> label right before its <Video k>.",
+                f"Аудиодорожка, парная по индексу с ref_video_{i}. Получает собственную метку <Audio j> сразу перед своим <Video k>.")})
+        for i in range(3):
             optional[f"ref_audio_{i}"] = ("AUDIO", {"tooltip": _ref_tip(
-                f"Optional standalone reference audio #{i+1} (voice/timbre) → next <Audio j> ordinal in "
-                "prompt order. Resampled to the audio VAE rate and encoded. Recommended to combine with "
-                "at least one image or video reference.",
-                f"Опциональный отдельный референс-аудио #{i+1} (голос/тембр) → следующий порядковый "
-                "<Audio j> в порядке промпта. Ресемплируется до частоты audio_vae и кодируется. "
-                "Рекомендуется сочетать хотя бы с одним изображением или видео-референсом.")})
+                f"Optional standalone reference audio #{i+1} (voice/timbre) → next <Audio j>. Combine with at least one image/video ref.",
+                f"Опциональный отдельный референс-аудио #{i+1} (голос/тембр) → следующий <Audio j>. Сочетайте хотя бы с одним изображением/видео.")})
         return {
             "required": {
                 **_calc_widgets(),
                 "ref_image_size": (["match", "max"], {"default": "match", "tooltip": _ref_tip(
-                    "Reference image sizing for the H3 encoder. ONLY these two values exist in the H3 "
-                    "combo — both are required.\n"
-                    "• match — each reference is scaled (down only, aspect kept) to the generation's "
-                    "pixel area; cheap and consistent with the output framing.\n"
-                    "• max — references use the reference pipeline's 2048px short edge for best identity "
-                    "fidelity; reference tokens ride through every sampling step, so 'max' can be several "
-                    "times slower.",
-                    "Размер референс-изображений для энкодера H3. В combo H3 существуют ТОЛЬКО эти два "
-                    "значения — оба обязательны.\n"
-                    "• match — каждый референс масштабируется (только вниз, пропорции сохраняются) до "
-                    "площади пикселей генерации; дёшево и согласовано с кадрированием выхода.\n"
-                    "• max — референсы используют короткую сторону 2048px конвейера референсов для лучшей "
-                    "передачи внешности; токены референсов проходят каждый шаг семплирования, поэтому "
-                    "'max' может быть в несколько раз медленнее.")}),
+                    "Reference image sizing. match = down-only to the generation pixel area; max = 2048px short edge for best identity, several times slower.",
+                    "Размер референс-изображений. match = только вниз до площади генерации; max = короткая сторона 2048px для лучшей внешности, в несколько раз медленнее.")}),
                 "prompt": ("STRING", {"default": "", "multiline": True, "tooltip": _ref_tip(
-                    "Text prompt. References are addressed by 1-based ordinals per type in connection "
-                    "order: ref_image_0 → <Picture 1>, ref_video_0 → <Video 1>, audio refs and video "
-                    "soundtracks → <Audio j> (a soundtrack label is emitted right before its video).\n"
-                    "Typical pattern: 'Subject_definitions: <Subject 1>: character from <Picture 1> ...' "
-                    "followed by the scene description using the same tags.",
-                    "Текстовый промпт. Референсы адресуются порядковыми тегами с 1 по типу в порядке "
-                    "подключения: ref_image_0 → <Picture 1>, ref_video_0 → <Video 1>, аудио-рефы и дорожки "
-                    "видео → <Audio j> (метка дорожки ставится сразу перед меткой своего видео).\n"
-                    "Типовой шаблон: 'Subject_definitions: <Subject 1>: персонаж из <Picture 1> ...' "
-                    "далее описание сцены с теми же тегами.")}),
+                    "Text prompt. Refs addressed by 1-based tags per type: <Picture 1>, <Video 1>, <Audio 1>... Typical: 'Subject_definitions: <Subject 1>: character from <Picture 1>...'.",
+                    "Текстовый промпт. Референсы адресуются тегами с 1 по типу: <Picture 1>, <Video 1>, <Audio 1>... Типово: 'Subject_definitions: <Subject 1>: персонаж из <Picture 1>...'.")}),
                 "clip": ("CLIP", {"tooltip": _ref_tip(
-                    "CLIP / text encoder (Qwen3-VL family for H3). Encodes the prompt together with the "
-                    "reference presentation (minimax_ref_items: images, 2 fps video frames with "
-                    "timestamps, audio placeholders).",
-                    "CLIP / текст-энкодер (семейство Qwen3-VL для H3). Кодирует промпт вместе с презентацией "
-                    "референсов (minimax_ref_items: изображения, кадры видео на 2 fps с таймстампами, "
-                    "аудио-плейсхолдеры).")}),
-                "vae": ("VAE", {"tooltip": _ref_tip(
-                    "Video VAE (24-channel latent). Encodes resized reference images and trimmed reference "
-                    "videos into minimax_refs latents. Without it references only condition the text "
-                    "encoder (no DiT ref blocks).",
-                    "Видео-VAE (24-канальный латент). Кодирует ресайзнутые референс-изображения и обрезанные "
-                    "референс-видео в латенты minimax_refs. Без него референсы кондиционируют только "
-                    "текст-энкодер (без блоков рефов для DiT).")}),
-                "audio_vae": ("VAE", {"tooltip": _ref_tip(
-                    "Audio VAE (32-channel, 40 Hz latent). Encodes paired soundtracks and standalone "
-                    "reference audio after resampling to its rate. Without it audio refs only condition "
-                    "the text encoder.",
-                    "Аудио-VAE (32-канальный, 40 Гц латент). Кодирует парные дорожки и отдельные "
-                    "референс-аудио после ресемплирования до своей частоты. Без него аудио-рефы "
-                    "кондиционируют только текст-энкодер.")}),
+                    "CLIP / text encoder (Qwen3-VL for H3). Encodes the prompt with the reference presentation (minimax_ref_items).",
+                    "CLIP / текст-энкодер (Qwen3-VL для H3). Кодирует промпт с презентацией референсов (minimax_ref_items).")}),
             },
             "optional": optional,
         }
     @classmethod
     def VALIDATE_INPUTS(cls, **kwargs):
         return True
-    RETURN_TYPES = ("CONDITIONING", "LATENT", "INT", "INT", "INT", "FLOAT", "INT")
-    RETURN_NAMES = ("positive", "LATENT", "width", "height", "fps_int", "fps_float", "total_frames")
+    RETURN_TYPES = ("CONDITIONING", "LATENT", "INT", "INT", "INT", "FLOAT", "INT", "FLOAT")
+    RETURN_NAMES = ("positive", "LATENT", "width", "height", "fps_int", "fps_float", "total_frames", "duration_seconds")
     OUTPUT_TOOLTIPS = (
-        _ref_tip("CONDITIONING: encoded prompt with the reference presentation; carries 'minimax_refs' "
-                 "blocks (image/video/video_audio/audio latents with grid sizes) for the H3 DiT.",
-                 "CONDITIONING: закодированный промпт с презентацией референсов; несёт блоки "
-                 "'minimax_refs' (латенты изображений/видео/видео_аудио/аудио с размерами сетки) для DiT H3."),
-        _ref_tip("Empty joint audio-video latent: video [B,24,latent_t,H//16,W//16] + audio [B,32,2,audio_t] "
-                 "as a NestedTensor, sizes derived from width/height/total_frames (17N+5).",
-                 "Пустой совместный аудио-видео латент: видео [B,24,latent_t,H//16,W//16] + аудио "
-                 "[B,32,2,audio_t] в NestedTensor; размеры получены из width/height/total_frames (17N+5)."),
-        _ref_tip("Generation frame width, multiple of 32 / Ширина кадра генерации, кратна 32.",
-                 "Ширина кадра генерации, кратна 32."),
-        _ref_tip("Generation frame height, multiple of 32 / Высота кадра генерации, кратна 32.",
-                 "Высота кадра генерации, кратна 32."),
-        _ref_tip("FPS as integer, always 24 for MiniMax H3 / FPS целым, всегда 24 для MiniMax H3.",
-                 "FPS целым, всегда 24 для MiniMax H3."),
-        _ref_tip("FPS as float, always 24.0 for MiniMax H3 / FPS дробным, всегда 24.0 для MiniMax H3.",
-                 "FPS дробным, всегда 24.0 для MiniMax H3."),
-        _ref_tip("Total frame count aligned to 17N+5 (5, 22, 39, ...); equals the AV latent temporal grid.",
-                 "Общее число кадров, выровненное до 17N+5 (5, 22, 39, ...); равно временной сетке AV-латента."),
+        _ref_tip("CONDITIONING: encoded prompt with the reference presentation; carries 'minimax_refs' blocks for the H3 DiT.",
+                 "CONDITIONING: закодированный промпт с презентацией референсов; несёт блоки 'minimax_refs' для DiT H3."),
+        _ref_tip("Empty joint audio-video latent: video [B,24,latent_t,H//16,W//16] + audio [B,32,2,audio_t] NestedTensor.",
+                 "Пустой совместный аудио-видео латент: видео [B,24,latent_t,H//16,W//16] + аудио [B,32,2,audio_t] NestedTensor."),
+        _ref_tip("Generation frame width, multiple of 32.", "Ширина кадра генерации, кратна 32."),
+        _ref_tip("Generation frame height, multiple of 32.", "Высота кадра генерации, кратна 32."),
+        _ref_tip("FPS as integer, always 24.", "FPS целым, всегда 24."),
+        _ref_tip("FPS as float, always 24.0.", "FPS дробным, всегда 24.0."),
+        _ref_tip("Total frame count aligned to 17N+5.", "Общее число кадров, выровненное до 17N+5."),
+        _ref_tip("Exact clip duration in seconds (total_frames / 24).", "Точная длительность клипа в секундах (total_frames / 24)."),
     )
     def main(self, mode, preset, invert_orientation, custom_width, custom_height,
              megapixels_value, aspect_ratio, frame_count_source,
              length_seconds, frame_count, ref_image_size, prompt,
-             clip, vae, audio_vae, **refs):
+             clip, vae=None, audio_vae=None, **refs):
         # 1. Калькулятор размера / Size calculator
         width, height = _calc_size(mode, preset, invert_orientation, custom_width,
                                    custom_height, megapixels_value, aspect_ratio)
         fps_int, fps_float = 24, 24.0
         total = _calc_frames(frame_count_source, length_seconds, frame_count)
+        duration_seconds = total / 24.0
         # 2. Пустой AV-латент / Empty AV latent
         latent, frame_count = _empty_av_latent(width, height, total)
         # 3. Референсы (логика H3 ref2va) / References (H3 ref2va logic)
         ref_items = []
         ref_blocks = []
-        for i in range(10):
+        for i in range(9):
             img = refs.get(f"ref_image_{i}")
             if img is None: continue
             h, w = img.shape[1], img.shape[2]
@@ -628,15 +460,6 @@ class AGSoft_MiniMax_H3_Ref2V:
             soundtrack = refs.get(f"ref_video_audio_{i}")
             video_frames = _video_to_frames(video_frames)
             vh, vw = video_frames.shape[1], video_frames.shape[2]
-            video_frames = _video_to_frames(video_frames)
-            # Запасной саундтрек: встроенный аудио-трек самого видео, если
-            # ref_video_audio_N не подключен. Fallback soundtrack: the video's
-            # own embedded audio track when ref_video_audio_N is not connected.
-            if soundtrack is None:
-                embedded = _video_get_audio(refs.get(f"ref_video_{i}"))
-                if embedded is not None:
-                    soundtrack = embedded
-            vh, vw = video_frames.shape[1], video_frames.shape[2]
             cw, ch = adapt_canvas(vw, vh)
             if vw * vh < cw * ch:
                 cw = max(CANVAS_MULTIPLE, round(vw / CANVAS_MULTIPLE) * CANVAS_MULTIPLE)
@@ -652,9 +475,9 @@ class AGSoft_MiniMax_H3_Ref2V:
             frames = frames[:n]
             if soundtrack is not None:
                 ref_items.append({"type": "audio"})
-                sample_idx = list(range(0, frames.shape[0], FPS // 2))
-                qwen_frames = frames[sample_idx]
-                ref_items.append({"type": "video", "data": qwen_frames, "timestamps": [i / 2.0 for i in range(len(sample_idx))]})
+            sample_idx = list(range(0, frames.shape[0], FPS // 2))
+            qwen_frames = frames[sample_idx]
+            ref_items.append({"type": "video", "data": qwen_frames, "timestamps": [i / 2.0 for i in range(len(sample_idx))]})
             if vae is None:
                 continue
             z = vae.encode(frames)
@@ -666,7 +489,7 @@ class AGSoft_MiniMax_H3_Ref2V:
                 "latent_t": z.shape[2], "latent_h": ch // 16, "latent_w": cw // 16,
                 "ref_audio_t": ref_audio_t, "latent": z, "audio_latent": audio_latent
             })
-        for i in range(10):
+        for i in range(3):
             audio = refs.get(f"ref_audio_{i}")
             if audio is None: continue
             ref_items.append({"type": "audio"})
@@ -679,7 +502,7 @@ class AGSoft_MiniMax_H3_Ref2V:
         cond = clip.encode_from_tokens_scheduled(tokens)
         if ref_blocks:
             cond = node_helpers.conditioning_set_values(cond, {"minimax_refs": ref_blocks})
-        return (cond, latent, width, height, fps_int, fps_float, total)
+        return (cond, latent, width, height, fps_int, fps_float, total, duration_seconds)
 #========================================================================
 # Нода 2: AGSoft MiniMax H3 I2V
 #========================================================================
@@ -688,32 +511,17 @@ class AGSoft_MiniMax_H3_I2V:
     FUNCTION = "main"
     WEB_DIRECTORY = "./web"
     DESCRIPTION = (
-        "AGSoft MiniMax H3 I2V — local Image-to-Video (t2va / fl2va) conditioning for MiniMax H3 "
-        "with the AGSoft parameter calculator.\n"
-        "Pipeline: empty joint AV latent (video 24ch + audio 32ch) of the calculated size; optional "
-        "first_frame is stretched plain to the generation canvas (geometry anchor, resolved to frame "
-        "index 0); optional last_frame is aspect-preserving cover-cropped to the canvas (follower, "
-        "resolved to frame index length-1); both are encoded by the video VAE into minimax_keyframes "
-        "blocks attached to the CONDITIONING; the prompt is tokenized together with the keyframe images.\n"
-        "Without any keyframes the node works as pure text-to-video. With both frames the model "
-        "interpolates the motion between them.\n"
-        "Calculator widgets auto-hide per mode; the live info line (DOM widget) shows ⚙ W×H • sec • "
-        "frames between the last combo and the prompt.\n"
-        "Outputs: positive (CONDITIONING), LATENT, width, height, fps_int, fps_float, total_frames.\n"
+        "Local Image-to-Video (t2va/fl2va) conditioning for MiniMax H3 with the AGSoft calculator.\n"
+        "• Size and frames as in Ref2V; invert in ALL modes; duration_seconds = total/24.\n"
+        "• first_frame = geometry anchor (plain stretch, frame 0); last_frame = follower "
+        "(center cover-crop, last frame); both → minimax_keyframes; no frames = pure text-to-video.\n"
+        "• vae is OPTIONAL: without it keyframes only condition the text encoder.\n"
         "---\n"
-        "AGSoft MiniMax H3 I2V — локальное кондиционирование Image-to-Video (t2va / fl2va) для "
-        "MiniMax H3 с калькулятором параметров AGSoft.\n"
-        "Конвейер: пустой совместный AV-латент (видео 24 канала + аудио 32 канала) рассчитанного "
-        "размера; опциональный first_frame растягивается по холсту генерации без сохранения пропорций "
-        "(геометрический якорь, кадр 0); опциональный last_frame обрезается по центру с сохранением "
-        "пропорций (cover-crop, последний кадр length-1); оба кодируются видео-VAE в блоки "
-        "minimax_keyframes, прикрепляемые к CONDITIONING; промпт токенизируется вместе с изображениями "
-        "ключевых кадров.\n"
-        "Без ключевых кадров нода работает как чистый text-to-video. С обоими кадрами модель "
-        "интерполирует движение между ними.\n"
-        "Виджеты калькулятора автоскрываются по режимам; живая инфострока (DOM-виджет) показывает "
-        "⚙ W×H • сек • кадры между последним combo и prompt.\n"
-        "Выходы: positive (CONDITIONING), LATENT, width, height, fps_int, fps_float, total_frames."
+        "Локальное кондиционирование Image-to-Video (t2va/fl2va) для MiniMax H3 с калькулятором AGSoft.\n"
+        "• Размер и кадры как в Ref2V; инверсия во ВСЕХ режимах; duration_seconds = total/24.\n"
+        "• first_frame = геометрический якорь (растягивание, кадр 0); last_frame = последователь "
+        "(cover-crop по центру, последний кадр); оба → minimax_keyframes; без кадров = чистый text-to-video.\n"
+        "• vae ОПЦИОНАЛЕН: без него ключевые кадры кондиционируют только текст-энкодер."
     )
     @classmethod
     def INPUT_TYPES(cls):
@@ -721,78 +529,51 @@ class AGSoft_MiniMax_H3_I2V:
             "required": {
                 **_calc_widgets(),
                 "prompt": ("STRING", {"default": "", "multiline": True, "tooltip": _ref_tip(
-                    "Text prompt describing the scene and the motion.\n"
-                    "• first_frame only: the motion starts from it.\n"
-                    "• last_frame only: the motion ends there.\n"
-                    "• both: the model interpolates between the keyframes.\n"
-                    "• none: pure text-to-video generation.",
-                    "Текстовый промпт, описывающий сцену и движение.\n"
-                    "• Только first_frame: движение начинается с него.\n"
-                    "• Только last_frame: движение заканчивается на нём.\n"
-                    "• Оба: модель интерполирует между ключевыми кадрами.\n"
-                    "• Ни одного: чистая генерация text-to-video.")}),
+                    "Text prompt describing the scene and motion. first_frame only = motion starts from it; last_frame only = ends there; both = interpolation; none = text-to-video.",
+                    "Текстовый промпт со сценой и движением. Только first_frame = движение начинается с него; только last_frame = заканчивается на нём; оба = интерполяция; ни одного = text-to-video.")}),
                 "clip": ("CLIP", {"tooltip": _ref_tip(
-                    "CLIP / text encoder (Qwen3-VL family for H3). Encodes the prompt together with the "
-                    "keyframe images (first/last frame) when they are connected.",
-                    "CLIP / текст-энкодер (семейство Qwen3-VL для H3). Кодирует промпт вместе с "
-                    "изображениями ключевых кадров (первый/последний), если они подключены.")}),
-                "vae": ("VAE", {"tooltip": _ref_tip(
-                    "Video VAE (24-channel latent). Encodes the connected keyframes into minimax_keyframes "
-                    "blocks. Required when first_frame or last_frame is used.",
-                    "Видео-VAE (24-канальный латент). Кодирует подключённые ключевые кадры в блоки "
-                    "minimax_keyframes. Обязателен при использовании first_frame или last_frame.")}),
+                    "CLIP / text encoder (Qwen3-VL for H3). Encodes the prompt with the keyframe images.",
+                    "CLIP / текст-энкодер (Qwen3-VL для H3). Кодирует промпт с изображениями ключевых кадров.")}),
             },
             "optional": {
+                "vae": ("VAE", {"tooltip": _ref_tip(
+                    "Video VAE (24ch latent). OPTIONAL: without it keyframes only condition the text encoder (no minimax_keyframes blocks).",
+                    "Видео-VAE (24ch латент). ОПЦИОНАЛЕН: без него ключевые кадры кондиционируют только текст-энкодер (без блоков minimax_keyframes).")}),
                 "first_frame": ("IMAGE", {"tooltip": _ref_tip(
-                    "Optional first keyframe. Geometry anchor: plain stretch to the generation canvas "
-                    "(aspect may distort). Resolved to frame index 0 and encoded by the video VAE into "
-                    "minimax_keyframes.",
-                    "Опциональный первый ключевой кадр. Геометрический якорь: растягивание по холсту "
-                    "генерации без сохранения пропорций. Приводится к индексу кадра 0 и кодируется "
-                    "видео-VAE в minimax_keyframes.")}),
+                    "Optional first keyframe. Geometry anchor: plain stretch to the canvas, frame 0, encoded into minimax_keyframes.",
+                    "Опциональный первый ключевой кадр. Геометрический якорь: растягивание по холсту, кадр 0, кодируется в minimax_keyframes.")}),
                 "last_frame": ("IMAGE", {"tooltip": _ref_tip(
-                    "Optional last keyframe. Follower: aspect-preserving cover-crop (center) to the "
-                    "generation canvas. Resolved to frame index length-1 and encoded by the video VAE "
-                    "into minimax_keyframes.",
-                    "Опциональный последний ключевой кадр. Последователь: обрезка по центру с сохранением "
-                    "пропорций (cover-crop) по холсту генерации. Приводится к индексу кадра length-1 и "
-                    "кодируется видео-VAE в minimax_keyframes.")}),
+                    "Optional last keyframe. Follower: center cover-crop to the canvas, last frame, encoded into minimax_keyframes.",
+                    "Опциональный последний ключевой кадр. Последователь: cover-crop по центру, последний кадр, кодируется в minimax_keyframes.")}),
             },
         }
     @classmethod
     def VALIDATE_INPUTS(cls, **kwargs):
         return True
-    RETURN_TYPES = ("CONDITIONING", "LATENT", "INT", "INT", "INT", "FLOAT", "INT")
-    RETURN_NAMES = ("positive", "LATENT", "width", "height", "fps_int", "fps_float", "total_frames")
+    RETURN_TYPES = ("CONDITIONING", "LATENT", "INT", "INT", "INT", "FLOAT", "INT", "FLOAT")
+    RETURN_NAMES = ("positive", "LATENT", "width", "height", "fps_int", "fps_float", "total_frames", "duration_seconds")
     OUTPUT_TOOLTIPS = (
-        _ref_tip("CONDITIONING: encoded prompt (+ keyframe images); carries 'minimax_keyframes' blocks "
-                 "(frame index + VAE latent) for the H3 DiT when keyframes are connected.",
-                 "CONDITIONING: закодированный промпт (+ изображения ключевых кадров); несёт блоки "
-                 "'minimax_keyframes' (индекс кадра + латент VAE) для DiT H3 при подключённых кадрах."),
-        _ref_tip("Empty joint audio-video latent: video [B,24,latent_t,H//16,W//16] + audio [B,32,2,audio_t] "
-                 "as a NestedTensor, sizes derived from width/height/total_frames (17N+5).",
-                 "Пустой совместный аудио-видео латент: видео [B,24,latent_t,H//16,W//16] + аудио "
-                 "[B,32,2,audio_t] в NestedTensor; размеры получены из width/height/total_frames (17N+5)."),
-        _ref_tip("Generation frame width, multiple of 32 / Ширина кадра генерации, кратна 32.",
-                 "Ширина кадра генерации, кратна 32."),
-        _ref_tip("Generation frame height, multiple of 32 / Высота кадра генерации, кратна 32.",
-                 "Высота кадра генерации, кратна 32."),
-        _ref_tip("FPS as integer, always 24 for MiniMax H3 / FPS целым, всегда 24 для MiniMax H3.",
-                 "FPS целым, всегда 24 для MiniMax H3."),
-        _ref_tip("FPS as float, always 24.0 for MiniMax H3 / FPS дробным, всегда 24.0 для MiniMax H3.",
-                 "FPS дробным, всегда 24.0 для MiniMax H3."),
-        _ref_tip("Total frame count aligned to 17N+5 (5, 22, 39, ...); equals the AV latent temporal grid.",
-                 "Общее число кадров, выровненное до 17N+5 (5, 22, 39, ...); равно временной сетке AV-латента."),
+        _ref_tip("CONDITIONING: encoded prompt (+ keyframe images); carries 'minimax_keyframes' blocks when keyframes are connected.",
+                 "CONDITIONING: закодированный промпт (+ ключевые кадры); несёт блоки 'minimax_keyframes' при подключённых кадрах."),
+        _ref_tip("Empty joint audio-video latent: video [B,24,latent_t,H//16,W//16] + audio [B,32,2,audio_t] NestedTensor.",
+                 "Пустой совместный аудио-видео латент: видео [B,24,latent_t,H//16,W//16] + аудио [B,32,2,audio_t] NestedTensor."),
+        _ref_tip("Generation frame width, multiple of 32.", "Ширина кадра генерации, кратна 32."),
+        _ref_tip("Generation frame height, multiple of 32.", "Высота кадра генерации, кратна 32."),
+        _ref_tip("FPS as integer, always 24.", "FPS целым, всегда 24."),
+        _ref_tip("FPS as float, always 24.0.", "FPS дробным, всегда 24.0."),
+        _ref_tip("Total frame count aligned to 17N+5.", "Общее число кадров, выровненное до 17N+5."),
+        _ref_tip("Exact clip duration in seconds (total_frames / 24).", "Точная длительность клипа в секундах (total_frames / 24)."),
     )
     def main(self, mode, preset, invert_orientation, custom_width, custom_height,
              megapixels_value, aspect_ratio, frame_count_source,
-             length_seconds, frame_count, prompt, clip, vae,
+             length_seconds, frame_count, prompt, clip, vae=None,
              first_frame=None, last_frame=None):
         # 1. Калькулятор размера / Size calculator
         width, height = _calc_size(mode, preset, invert_orientation, custom_width,
                                    custom_height, megapixels_value, aspect_ratio)
         fps_int, fps_float = 24, 24.0
         total = _calc_frames(frame_count_source, length_seconds, frame_count)
+        duration_seconds = total / 24.0
         # 2. Пустой AV-латент / Empty AV latent
         latent, frame_count = _empty_av_latent(width, height, total)
         # 3. Ключевые кадры (логика H3 I2V) / Keyframes (H3 I2V logic)
@@ -809,11 +590,11 @@ class AGSoft_MiniMax_H3_I2V:
         # 4. Токенизация и кондиционирование / Tokenization and conditioning
         tokens = clip.tokenize(prompt, images=images)
         cond = clip.encode_from_tokens_scheduled(tokens)
-        if keyframes:
+        if keyframes and vae is not None:
             for kf in keyframes:
                 kf["latent"] = vae.encode(kf.pop("image"))
             cond = node_helpers.conditioning_set_values(cond, {"minimax_keyframes": keyframes})
-        return (cond, latent, width, height, fps_int, fps_float, total)
+        return (cond, latent, width, height, fps_int, fps_float, total, duration_seconds)
 #========================================================================
 # Регистрация / Registration
 #========================================================================
