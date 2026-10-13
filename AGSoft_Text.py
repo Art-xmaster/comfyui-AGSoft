@@ -247,7 +247,30 @@ class AGSoftTextOperation:
                     ],
                     {
                         "default": "uppercase",
-                        "tooltip": "Select the operation to perform on the input text.\nВыберите операцию, которую нужно выполнить над входным текстом.\n\n- uppercase: Converts all characters to uppercase.\n  Преобразует все символы в верхний регистр.\n- lowercase: Converts all characters to lowercase.\n  Преобразует все символы в нижний регистр.\n- capitalize: Capitalizes the first letter of the entire string.\n  Делает первую букву всей строки заглавной.\n- invert_case: Inverts the case of each character (upper becomes lower and vice versa).\n  Инвертирует регистр каждого символа (верхний становится нижним и наоборот).\n- reverse: Reverses the order of characters in the string.\n  Переворачивает порядок символов в строке.\n- trim: Removes leading and trailing whitespace (spaces, tabs, newlines) from the string.\n  Удаляет начальные и конечные пробельные символы (пробелы, табуляции, переводы строк) из строки.\n- remove_spaces: Removes ALL whitespace characters (spaces, tabs, newlines) from the string.\n  Удаляет ВСЕ пробельные символы (пробелы, табуляции, переводы строк) из строки.\n- count_words: Counts the number of words in the text. The result is output to the 'count' socket.\n  Подсчитывает количество слов в тексте. Результат выводится в сокет 'count'.\n- split_lines: Splits the text into lines and outputs them as a single string joined by newlines. Useful for processing multi-line text.\n  Разбивает текст на строки и выводит их как одну строку, соединенную символами новой строки. Полезно для обработки многострочного текста.\n- join_lines: Joins all lines of the text into a single line, separated by a space. Useful for flattening multi-line text.\n  Объединяет все строки текста в одну строку, разделенные пробелом. Полезно для сглаживания многострочного текста."
+                        "tooltip": (
+                            "Select the operation to perform on the input text.\n"
+                            "Выберите операцию, которую нужно выполнить над входным текстом.\n\n"
+                            "- uppercase: Converts all characters to uppercase.\n"
+                            "  Преобразует все символы в верхний регистр.\n"
+                            "- lowercase: Converts all characters to lowercase.\n"
+                            "  Преобразует все символы в нижний регистр.\n"
+                            "- capitalize: Capitalizes the first letter of the entire string.\n"
+                            "  Делает первую букву всей строки заглавной.\n"
+                            "- invert_case: Inverts the case of each character (upper becomes lower and vice versa).\n"
+                            "  Инвертирует регистр каждого символа (верхний становится нижним и наоборот).\n"
+                            "- reverse: Reverses the order of characters in the string.\n"
+                            "  Переворачивает порядок символов в строке.\n"
+                            "- trim: Removes leading and trailing whitespace (spaces, tabs, newlines) from the string.\n"
+                            "  Удаляет начальные и конечные пробельные символы (пробелы, табуляции, переводы строк) из строки.\n"
+                            "- remove_spaces: Removes ALL whitespace characters (spaces, tabs, newlines) from the string.\n"
+                            "  Удаляет ВСЕ пробельные символы (пробелы, табуляции, переводы строк) из строки.\n"
+                            "- count_words: Counts the number of words in the text. The result is output to the 'count' socket.\n"
+                            "  Подсчитывает количество слов в тексте. Результат выводится в сокет 'count'.\n"
+                            "- split_lines: Splits the text into lines and outputs them as a single string joined by newlines. Useful for processing multi-line text.\n"
+                            "  Разбивает текст на строки и выводит их как одну строку, соединенную символами новой строки. Полезно для обработки многострочного текста.\n"
+                            "- join_lines: Joins all lines of the text into a single line, separated by a space. Useful for flattening multi-line text.\n"
+                            "  Объединяет все строки текста в одну строку, разделенные пробелом. Полезно для сглаживания многострочного текста."
+                        ),
                     },
                 ),
             }

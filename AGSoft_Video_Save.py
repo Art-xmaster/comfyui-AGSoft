@@ -166,7 +166,6 @@ PROBE_TIMEOUT = int(_ENV.get("AGSOFT_FFPROBE_TIMEOUT", "15"))
 DROP_MAX_BYTES = int(_ENV.get("AGSOFT_DROP_MAX_MB", "2048")) * 1024 * 1024
 # Если 0 / false / no — чтение/превью разрешено только из input/output/temp.
 # По умолчанию разрешены любые пути, чтобы не ломать локальные сценарии.
-ALLOW_ANY_READ_PATH = _ENV.get("AGSOFT_ALLOW_ANY_PATH", "1").lower() not in ("0", "false", "no")
 _PREVIEW_ACTIVE = 0
 _PREVIEW_MAX = int(_ENV.get("AGSOFT_PREVIEW_MAX", "2"))
 # Лимит кадров для выхода video_frames при декодировании файла (0 = без лимита).
@@ -675,11 +674,8 @@ def _base_read_dirs():
 def _read_path_allowed(path):
     """
     Проверка пути для чтения/превью.
-    По умолчанию разрешены любые пути, чтобы не ломать существующие сценарии.
-    Для безопасности установите AGSOFT_ALLOW_ANY_PATH=0.
+    Разрешены ТОЛЬКО официальные папки ComfyUI (output, input, temp).
     """
-    if ALLOW_ANY_READ_PATH:
-        return True
     p = os.path.abspath(path)
     for base in _base_read_dirs():
         try:
