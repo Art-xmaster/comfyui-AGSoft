@@ -2,7 +2,7 @@
 # AGSoft_Empty_Latent_Plus.py
 # ==============================================================================
 # Node: 🧊AGSoft Empty Latent Plus
-# Version: v1.03
+# Version: v1.04
 #
 # Universal empty latent generator for ComfyUI.
 # The node receives a VAE input and automatically infers the latent format
@@ -40,7 +40,7 @@
 # ------------------------------------------------------------------------------
 #
 # Нода: 🧊AGSoft Empty Latent Plus
-# Версия: v1.03
+# Версия: v1.04
 #
 # Универсальный генератор пустого латента для ComfyUI.
 # Нода принимает вход VAE и автоматически определяет по нему формат латента:
@@ -76,12 +76,13 @@
 #   - неиспользуемые виджеты скрываются автоматически по size_mode.
 #
 # Author: AGSoft
-# Date: 02.10.2026
+# Date: 21.10.2026
 # ==============================================================================
 
 import torch
 import math
 
+# print("[AGSoft Empty Latent Plus] v1.04 loaded (universal empty latent, VAE auto spec, registry-safe attribute access)")
 
 RATIO_PRESETS = [
     "1:1", "5:4", "4:3", "3:2", "16:10", "16:9", "2:1", "21:9",
@@ -230,12 +231,13 @@ def _get_vae_spec(vae):
     if vae is None:
         return 4, 8
 
-    roots = [
-        vae,
-        getattr(vae, "vae", None),
-        getattr(vae, "model", None),
-        getattr(vae, "first_stage_model", None),
-    ]
+    roots = [vae]
+    if hasattr(vae, "vae"):
+        roots.append(vae.vae)
+    if hasattr(vae, "model"):
+        roots.append(vae.model)
+    if hasattr(vae, "first_stage_model"):
+        roots.append(vae.first_stage_model)
 
     objects = []
 
