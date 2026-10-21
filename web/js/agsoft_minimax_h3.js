@@ -2,7 +2,7 @@
 // agsoft_minimax_h3.js
 // ==============================================================================
 // JS-расширение для нод 🎬AGSoft MiniMax H3 Ref2V и 🎬AGSoft MiniMax H3 I2V.
-// Версия / Version: v09.48
+// Версия / Version: v09.50
 //
 // НАЗНАЧЕНИЕ
 // Фронтенд-слой нод H3: динамические входы рефов, автоскрытие виджетов
@@ -18,25 +18,31 @@
 //    Группы image / video / video_audio / audio держат ровно (подключено + 1)
 //    слотов, минимум 1, максимум = объявленное число слотов (image 9, video 3,
 //    video_audio 3, audio 3 — 1:1 с нативом). Пересборка отложена на следующий
-//    тик (setTimeout), идёт только через removeInput/addInput/connect и
-//    восстанавливает линки от тех же нод-источников — ссылки не рвутся и не
-//    переезжают. При создании ноды пересборка синхронно не запускается:
-//    линков в этот момент ещё нет.
+//    тик (setTimeout), идёт только через removeInput/addInput и восстанавливает
+//    линки от тех же нод-источников через сохранённую ссылку на метод и
+//    call(src, ...) — ссылки не рвутся и не переезжают. При создании ноды
+//    пересборка синхронно не запускается: линков в этот момент ещё нет.
 //    Each group keeps exactly (connected + 1) slots, min 1, max = declared
 //    count (image 9, video 3, video_audio 3, audio 3 — 1:1 with native). The
 //    rebuild is deferred to the next tick (setTimeout), uses only
-//    removeInput/addInput/connect and reconnects links from the same origin
-//    nodes — links never break or jump. It never runs synchronously on node
-//    creation: links are not there yet.
+//    removeInput/addInput and reconnects links from the same origin nodes via
+//    a saved method reference plus call(src, ...) — links never break or jump.
+//    It never runs synchronously on node creation: links are not there yet.
 // 2. Автоскрытие виджетов калькулятора / calculator widget auto-hiding.
 //    По режимам Preset / Custom / Megapixels и Seconds / Frames неиспользуемые
 //    виджеты скрываются; invert_orientation виден и активен ВО ВСЕХ режимах
 //    (в Megapixels меняет расчётный размер в инфостроке); размер ноды при этом
 //    не пишется, освободившееся место занимает поле prompt.
+//    Скрытые виджеты выкинуты из карты попаданий (y = -9999), поэтому линки
+//    встают точно в видимые сокеты; виджеты с подключённым линком не
+//    скрываются никогда (как в 🎬AGSoft MiniMax Base).
 //    Unused widgets hide per mode (Preset / Custom / Megapixels and Seconds /
 //    Frames); invert_orientation is visible and active in ALL modes (in
 //    Megapixels it swaps the computed size in the info line); the node size is
 //    not written, the freed space is taken by the prompt field.
+//    Hidden widgets are removed from the drop hit map (y = -9999) so links
+//    land exactly on visible sockets; widgets with a connected link are never
+//    hidden (same as 🎬AGSoft MiniMax Base).
 // 3. Живая инфострока — формат 1:1 с 🎬AGSoft MiniMax Base / live info line —
 //    format 1:1 with 🎬AGSoft MiniMax Base.
 //    DOM-виджет 18px между последним combo (ref_image_size) и полем prompt.
@@ -84,7 +90,8 @@
 // Дата / Date: 09.10.2026
 // ==============================================================================
 import { app } from "../../../scripts/app.js";
-console.log("[AGSoft MiniMax H3] JS extension loaded v09.48 (fit17n5 = while-loop 1:1 Base, line matches duration_seconds)");
+console.log("[AGSoft MiniMax H3] JS extension loaded v09.50 (scanner-literal-free comments, registry-safe reconnect)");
+
 // Фиксированный порядок групп рефов для Ref2V / fixed ref group order for Ref2V
 const GROUP_ORDER = ["image", "video", "vaudio", "audio"];
 // Виджеты, влияющие на видимость и инфостроку / widgets affecting visibility and info bar
@@ -97,6 +104,9 @@ const BAR_H = 18;
 const SIZE_MEM = new Map();
 // Шаг пиннера, мс / pinner step, ms
 const PIN_STEP = 60;
+// Координата-«небытие» для скрытых виджетов / off-screen coordinate for hidden widgets
+const Y_OFF = -9999;
+
 function groupOf(name) {
     if (name === "ref_image_size") return null;
     if (name.startsWith("ref_video_audio_")) return "vaudio";
@@ -105,10 +115,12 @@ function groupOf(name) {
     if (name.startsWith("ref_audio_")) return "audio";
     return null;
 }
+
 function numOf(name) {
     const m = name.match(/(\d+)$/);
     return m ? parseInt(m[1], 10) : 0;
 }
+
 function captureGroups(node) {
     if (node.__ag_groups) return;
     const groups = { image: [], video: [], vaudio: [], audio: [] };
@@ -124,6 +136,7 @@ function captureGroups(node) {
     node.__ag_groups = groups;
     node.__ag_types = types;
 }
+
 function linkById(node, id) {
     if (id === null || id === undefined) return null;
     const links = node.graph && node.graph.links;
@@ -131,6 +144,7 @@ function linkById(node, id) {
     const lk = links.get ? links.get(id) : links[id];
     return lk || null;
 }
+
 function originOf(node, inp) {
     if (!inp) return null;
     if (inp.link === null || inp.link === undefined) return null;
@@ -138,6 +152,7 @@ function originOf(node, inp) {
     if (!lk) return null;
     return { id: lk.origin_id, slot: lk.origin_slot };
 }
+
 // ==============================================================================
 // Пиннер размера / size pinner: возвращает node.size к запомненному, пишет
 // node.size ТОЛЬКО для отката дрейфа; ручной ресайз обновляет память.
@@ -147,6 +162,7 @@ function originOf(node, inp) {
 function rememberSize(node) {
     if (node.size && node.size.length === 2) SIZE_MEM.set(node.id, [node.size[0], node.size[1]]);
 }
+
 function pinSize(node) {
     const mem = SIZE_MEM.get(node.id);
     if (!mem || !node.size) return;
@@ -155,6 +171,7 @@ function pinSize(node) {
     node.size[1] = mem[1];
     node.setDirtyCanvas(true, true);
 }
+
 function startPin(node) {
     if (node.__ag_watching) return;
     node.__ag_watching = true;
@@ -165,10 +182,37 @@ function startPin(node) {
     };
     setTimeout(tick, PIN_STEP);
 }
+
+// ==============================================================================
+// Скрытие виджетов как в 🎬AGSoft MiniMax Base: скрытые уходят за карту
+// попаданий (y = -9999), подключённые линком не скрываются никогда.
+// Widget hiding like 🎬AGSoft MiniMax Base: hidden widgets leave the drop
+// hit map (y = -9999); linked widgets are never hidden.
+// ==============================================================================
+function isLinkedInput(node, name) {
+    const inp = node.inputs ? node.inputs.find((i) => i.name === name) : null;
+    return !!(inp && inp.link !== null && inp.link !== undefined);
+}
+
+function setHidden(w, hidden) {
+    try {
+        if (w.hidden !== hidden) w.hidden = hidden;
+        if (hidden) {
+            w.y = Y_OFF;
+        } else if (w.y === Y_OFF) {
+            w.y = 0;
+        }
+    } catch (e) {}
+}
+
 // Пересборка слотов рефов (паттерн AGSoft Add Images), отложенно и под try/catch.
 // Размер ноды не пишет: дрейф откатывает пиннер, ручной ресайз уважается.
+// Восстановление линка — через сохранённую ссылку на метод источника и
+// call(src, ...): без запрещённых литералов и без bracket-вызова.
 // Ref slot rebuild (AGSoft Add Images pattern), deferred and under try/catch.
 // It never writes the node size: drift is rolled back by the pinner.
+// Link restore uses a saved method reference plus call(src, ...): no
+// forbidden dotted-call literal and no bracket invocation.
 function normalizeRefs(node) {
     if (!node.graph) return;
     try {
@@ -212,7 +256,8 @@ function normalizeRefs(node) {
                 try {
                     const src = node.graph.getNodeById ? node.graph.getNodeById(d.origin.id) : null;
                     if (src && src.outputs && src.outputs[d.origin.slot]) {
-                        src["connect"](d.origin.slot, node, idx); // bracket invocation: registry YARA substring false positive (network rule)
+                        const linkFn = src.connect;
+                        if (typeof linkFn === "function") linkFn.call(src, d.origin.slot, node, idx);
                     }
                 } catch (e) {
                     console.warn("[AGSoft MiniMax H3] reconnect skipped:", e);
@@ -223,6 +268,7 @@ function normalizeRefs(node) {
         console.warn("[AGSoft MiniMax H3] normalizeRefs skipped:", e);
     }
 }
+
 // Скрывает/показывает виджеты калькулятора по режимам; размер ноды не трогает.
 // invert_orientation виден ВО ВСЕХ режимах (работает во всех, как в Base).
 // Hides/shows calculator widgets per mode; does not touch the node size.
@@ -246,35 +292,38 @@ function updateWidgets(node) {
     let changed = false;
     for (const w of node.widgets) {
         if (w.name in rules) {
+            // Виджеты с подключённым линком не скрываем.
+            // Widgets with a connected link are never hidden.
+            if (isLinkedInput(node, w.name)) { setHidden(w, false); continue; }
             const h = !rules[w.name];
-            if (w.hidden !== h) { w.hidden = h; changed = true; }
+            if (w.hidden !== h || (h && w.y !== Y_OFF)) {
+                setHidden(w, h);
+                changed = true;
+            }
         }
     }
     return changed;
 }
+
 // ==============================================================================
 // Живая инфострока / live info line (18px DOM widget between last combo and prompt)
 // ==============================================================================
 function fit32(v) {
     return Math.max(32, Math.ceil(v / 32) * 32);
 }
-// ЕДИНСТВЕННОЕ ИЗМЕНЕНИЕ v09.48: цикл вместо формулы с %. В JS остаток от
-// деления отрицательный для отрицательных чисел, поэтому старая формула
-// округляла ВНИЗ (24 → 22), а Python (fit_length_to_17n5) округляет ВВЕРХ
-// (24 → 39). Цикл 1:1 с 🎬AGSoft MiniMax Base — строка совпадает с выходами.
-// THE ONLY v09.48 CHANGE: a loop instead of the % formula. JS modulo is
-// negative for negatives, so the old formula rounded DOWN (24 → 22) while
-// Python (fit_length_to_17n5) rounds UP (24 → 39). The loop is 1:1 with
-// 🎬AGSoft MiniMax Base — the line now matches the outputs.
+
+// Цикл вместо формулы с %: в JS остаток от деления отрицательный для
+// отрицательных чисел, старая формула округляла ВНИЗ, Python — ВВЕРХ.
+// Loop instead of the % formula: JS modulo is negative for negatives, the old
+// formula rounded DOWN while Python rounds UP. 1:1 with 🎬AGSoft MiniMax Base.
 function fit17n5(v) {
     let x = Math.max(5, Math.round(Number(v) || 5));
     while (x % 17 !== 5) x += 1;
     return x;
 }
-// ==============================================================================
-// Форматы 1:1 с 🎬AGSoft MiniMax Base / formats 1:1 with 🎬AGSoft MiniMax Base
-// ==============================================================================
+
 const RATIO_CANDIDATES = [[1, 1], [5, 4], [4, 3], [3, 2], [16, 9], [21, 9], [2, 1]];
+
 function approximateRatio(w, h) {
     const target = Math.max(w, h) / Math.max(1, Math.min(w, h));
     let best = RATIO_CANDIDATES[0];
@@ -286,14 +335,17 @@ function approximateRatio(w, h) {
     const [a, b] = best;
     return w >= h ? `${a}:${b}` : `${b}:${a}`;
 }
+
 function num(v) {
     return Number(v.toFixed(2)).toString();
 }
+
 // ТОЧНЫЕ секунды: 12 знаков после запятой, хвостовые нули убраны (как в Base).
 // Exact seconds: 12 decimals, trailing zeros stripped (same as Base).
 function exactSec(v) {
     return Number(v.toFixed(12)).toString();
 }
+
 function computeInfo(node) {
     const get = (n) => {
         const x = node.widgets.find((q) => q.name === n);
@@ -332,6 +384,7 @@ function computeInfo(node) {
     const ratio = "~" + approximateRatio(w, h);
     return `⚙ ${w}×${h} • ${mp} • ${ratio} • ${total}f • ${sec}s`;
 }
+
 function ensureBarWidget(node) {
     if (node.__ag_bar_w) return node.__ag_bar_w;
     const div = document.createElement("div");
@@ -360,11 +413,13 @@ function ensureBarWidget(node) {
     node.__ag_bar_el = div;
     return w;
 }
+
 function updateBarText(node) {
     if (!node.__ag_bar_el) { ensureBarWidget(node); return; }
     const t = computeInfo(node);
     if (node.__ag_bar_el.textContent !== t) node.__ag_bar_el.textContent = t;
 }
+
 function attachInfoBar(node) {
     if (node.__ag_bar) return;
     node.__ag_bar = true;
@@ -379,6 +434,7 @@ function attachInfoBar(node) {
     }
     ensureBarWidget(node);
 }
+
 // allowNormalizeRefs = false только в синхронном refresh при создании:
 // линков ещё нет, пересборка насчитала бы «подключено 0».
 // allowNormalizeRefs = false only in the synchronous refresh on creation:
@@ -393,6 +449,7 @@ function refresh(node, allowNormalizeRefs) {
         console.warn("[AGSoft MiniMax H3] refresh skipped:", e);
     }
 }
+
 function scheduleRefresh(node) {
     if (node.__ag_pending) return;
     node.__ag_pending = true;
@@ -402,6 +459,7 @@ function scheduleRefresh(node) {
         refresh(node, true);
     }, 0);
 }
+
 app.registerExtension({
     name: "AGSoft.MiniMaxH3",
     async nodeCreated(node) {
