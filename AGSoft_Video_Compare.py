@@ -3,9 +3,9 @@
 AGSoft_Video_Compare.py
 ==============================================================================
 Node: 🎬AGSoft Video Compare
-Version: v10.29
+Version: v10.30
 Author / Автор: AGSoft
-Date / Дата: 12.10.2026
+Date / Дата: 21.10.2026
 ------------------------------------------------------------------------------
 Description / Описание:
 
@@ -170,7 +170,7 @@ from server import PromptServer
 from aiohttp import web
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-# print("[AGSoft Video Compare] v10.29 loaded (comparison window applies to IMAGE-batch inputs via image_fps)")
+# print("[AGSoft Video Compare] v10.30 loaded (registry-safe attribute access in _to_frames)")
 try:
     import av
 except Exception:
@@ -250,7 +250,7 @@ def _to_frames(video, start_second=0.0, compare_duration=0.0, fallback_fps=24.0)
     want_trim = (start_second > 0.0) or (compare_duration > 0.0)
     trimmed_obj = False
     if want_trim and not isinstance(video, (torch.Tensor, dict)):
-        at = getattr(video, "as_trimmed", None)
+        at = video.as_trimmed if hasattr(video, "as_trimmed") else None
         if callable(at):
             try:
                 tv = at(float(start_second), float(compare_duration), False)
@@ -268,13 +268,13 @@ def _to_frames(video, start_second=0.0, compare_duration=0.0, fallback_fps=24.0)
         fps = 0.0
     else:
         t, fps = None, 0.0
-        gc = getattr(video, "get_components", None)
+        gc = video.get_components if hasattr(video, "get_components") else None
         if callable(gc):
             try:
                 comp = gc()
                 if comp is not None:
-                    t = getattr(comp, "images", None)
-                    fr = getattr(comp, "frame_rate", None)
+                    t = comp.images if hasattr(comp, "images") else None
+                    fr = comp.frame_rate if hasattr(comp, "frame_rate") else None
                     if fr is not None:
                         fps = float(fr)
             except Exception as e:
