@@ -81,19 +81,17 @@ inside the node and serialized into the workflow.
    /agsoft/embed_workflow, /agsoft/extract_workflow, /agsoft/video_save_now
    (save buttons without re-encoding).
 ⚡ Переменные окружения: AGSOFT_FFMPEG_TIMEOUT, AGSOFT_FFPROBE_TIMEOUT,
-   AGSOFT_DROP_MAX_MB, AGSOFT_ALLOW_ANY_PATH, AGSOFT_PREVIEW_MAX,
+   AGSOFT_DROP_MAX_MB, AGSOFT_PREVIEW_MAX,
    AGSOFT_MAX_TENSOR_FRAMES (лимит кадров выхода video_frames).
-   Env vars: the same AGSOFT_* knobs (timeouts, drop limit, path policy,
-   preview slots, video_frames frame cap).
+   Env vars: the same AGSOFT_* knobs (timeouts, drop limit, preview slots,
+   video_frames frame cap).
 
 Автор / Author: AGSoft
 Дата / Date: 22.09.2026
 ==============================================================================
 """
 import os
-# Service alias: the registry scanner false-positives on os.environ literals.
-# Behaviour is identical.
-_ENV = getattr(os, "environ")
+from os import environ as _ENV
 import re
 import json
 import time
@@ -102,12 +100,8 @@ import struct
 import logging
 import tempfile
 import subprocess
-# Service aliases: the Comfy Registry security scanner (YARA)
-# false-positives on the subprocess run/Popen call literals.
-# Behaviour is identical, only the call form changes.
-_sp_run = getattr(subprocess, "run")
-_sp_popen = getattr(subprocess, "Popen")
-# false-positives on the literals _sp_run( / _sp_popen(.
+# Bare-name imports: plain stdlib calls, readable code, no dynamic lookup.
+from subprocess import run as _sp_run, Popen as _sp_popen
 import shutil
 import wave
 import asyncio
@@ -152,20 +146,18 @@ except ImportError:
     class IO:
         VIDEO = "VIDEO"
     HAS_NEW_API = False
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-# print("[AGSoft Video Save] v3.05 loaded (new node expanded, arrow-state spoiler, video icons on save buttons, audio output after video, short DESCRIPTION, detailed header)")
-
-# ------------------------------------------------------------------------------
+# print("[AGSoft Video Save] v3.06 loaded (realpath containment for all path routes and video_path widget, bare-import aliases, honest comments)")
+#------------------------------------------------------------------------------
 # Настройки безопасности / таймаутов / лимитов
-# ------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
 MAX_FFMPEG_TIMEOUT = int(_ENV.get("AGSOFT_FFMPEG_TIMEOUT", "900"))
 PROBE_TIMEOUT = int(_ENV.get("AGSOFT_FFPROBE_TIMEOUT", "15"))
 # Максимальный размер файла для drag&drop restore, MB
 DROP_MAX_BYTES = int(_ENV.get("AGSOFT_DROP_MAX_MB", "2048")) * 1024 * 1024
-# Если 0 / false / no — чтение/превью разрешено только из input/output/temp.
-# По умолчанию разрешены любые пути, чтобы не ломать локальные сценарии.
+# Чтение/превью разрешено ТОЛЬКО из input/output/temp (containment + realpath).
+# Reading/preview allowed ONLY from input/output/temp (containment + realpath).
 _PREVIEW_ACTIVE = 0
 _PREVIEW_MAX = int(_ENV.get("AGSOFT_PREVIEW_MAX", "2"))
 # Лимит кадров для выхода video_frames при декодировании файла (0 = без лимита).
@@ -657,16 +649,14 @@ def _video_object_from_file(path):
 def _base_read_dirs():
     dirs = []
     for fn in (
-        getattr(folder_paths, "get_input_directory", None),
-        getattr(folder_paths, "get_output_directory", None),
-        getattr(folder_paths, "get_temp_directory", None),
+        folder_paths.get_input_directory,
+        folder_paths.get_output_directory,
+        folder_paths.get_temp_directory,
     ):
-        if fn is None:
-            continue
         try:
             d = fn()
             if d:
-                dirs.append(os.path.abspath(d))
+                dirs.append(os.path.realpath(d))
         except Exception:
             pass
     return dirs
@@ -675,8 +665,9 @@ def _read_path_allowed(path):
     """
     Проверка пути для чтения/превью.
     Разрешены ТОЛЬКО официальные папки ComfyUI (output, input, temp).
+    Path check for read/preview: ONLY official ComfyUI dirs (output, input, temp).
     """
-    p = os.path.abspath(path)
+    p = os.path.realpath(path)
     for base in _base_read_dirs():
         try:
             if os.path.commonpath([p, base]) == base:
@@ -688,14 +679,16 @@ def _read_path_allowed(path):
 def _path_allowed(path):
     """
     Разрешаем вшивку метаданных только в output/temp.
+    Metadata embedding allowed only into output/temp.
     """
-    p = os.path.abspath(path)
+    p = os.path.realpath(path)
     for base in (
         folder_paths.get_output_directory(),
         folder_paths.get_temp_directory(),
     ):
         try:
-            if os.path.commonpath([p, os.path.abspath(base)]) == os.path.abspath(base):
+            rb = os.path.realpath(base)
+            if os.path.commonpath([p, rb]) == rb:
                 return True
         except Exception:
             continue
@@ -797,12 +790,13 @@ async def _stream_file_range(request, path):
 @PromptServer.instance.routes.get("/agsoft/stream_path")
 async def agsoft_stream_path(request):
     """
-    Отдача файла по абсолютному пути.
+    Отдача файла по абсолютному пути ТОЛЬКО из input/output/temp.
+    File serving by absolute path, ONLY from input/output/temp.
     """
     path = request.query.get("path", "")
     if not path:
         return web.Response(status=400)
-    path = os.path.abspath(path)
+    path = os.path.realpath(path)
     if not _read_path_allowed(path):
         return web.Response(status=403)
     return await _stream_file_range(request, path)
@@ -830,7 +824,7 @@ async def agsoft_preview_path(request):
     path = request.query.get("path", "")
     if not path:
         return web.Response(status=400)
-    path = os.path.abspath(path)
+    path = os.path.realpath(path)
     if not os.path.isfile(path):
         return web.Response(status=404)
     if not _read_path_allowed(path):
@@ -1644,7 +1638,7 @@ async def agsoft_video_save_now(request):
             }
             base = bases.get(ftype, folder_paths.get_temp_directory())
             src = os.path.join(base, fsub, filename)
-        src = os.path.abspath(src)
+        src = os.path.realpath(src)
         if not os.path.isfile(src):
             return web.json_response({"ok": False, "error": "file missing"})
         if not _read_path_allowed(src):
@@ -2009,7 +2003,9 @@ class AGSoftVideoSave:
                 if video is not None:
                     src_preview = _extract_video_path(video) or None
                 if src_preview is None and video_path and os.path.exists(video_path):
-                    src_preview = os.path.abspath(video_path)
+                    cand = os.path.realpath(video_path)
+                    if _read_path_allowed(cand):
+                        src_preview = cand
                 preview = None
                 tmp_dir = folder_paths.get_temp_directory()
                 os.makedirs(tmp_dir, exist_ok=True)
@@ -2116,7 +2112,9 @@ class AGSoftVideoSave:
                     raise ValueError("[AGSoft Video Save] Could not extract path from VIDEO object.")
                 logger.info(f"Converting VIDEO object: {src_video}")
             elif video_path and os.path.exists(video_path):
-                src_video = os.path.abspath(video_path)
+                src_video = os.path.realpath(video_path)
+                if not _read_path_allowed(src_video):
+                    raise ValueError("[AGSoft Video Save] video_path must be inside ComfyUI input/output/temp folders.")
                 logger.info(f"Converting video path: {src_video}")
             frames = None
             tensor_from_images = False
@@ -2409,6 +2407,8 @@ class AGSoftVideoSave:
                 return f"Video path does not exist: {video_path}"
             if not os.path.isfile(video_path):
                 return f"Video path is not a file: {video_path}"
+            if not _read_path_allowed(video_path):
+                return f"Video path must be inside ComfyUI input/output/temp folders: {video_path}"
         return True
 
 NODE_CLASS_MAPPINGS = {
