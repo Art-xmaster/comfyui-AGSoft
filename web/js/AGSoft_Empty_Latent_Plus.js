@@ -2,7 +2,7 @@
 // AGSoft_Empty_Latent_Plus.js
 // ==============================================================================
 // Frontend extension for the 🧊AGSoft Empty Latent Plus node.
-// Version: v1.03
+// Version: v1.04
 //
 // WHAT IT DOES
 // • Live info line at the bottom of the node (DOM widget):
@@ -30,7 +30,7 @@
 // ------------------------------------------------------------------------------
 //
 // Фронтенд-расширение для ноды 🧊AGSoft Empty Latent Plus.
-// Версия: v1.03
+// Версия: v1.04
 //
 // ЧТО ДЕЛАЕТ
 // • Живая инфострока внизу ноды (DOM-виджет):
@@ -56,11 +56,12 @@
 //   банковское округление, выравнивание под кратность.
 //
 // Author: AGSoft
-// Date: 02.10.2026
+// Date: 21.10.2026
 // ==============================================================================
 
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
+console.log("[AGSoft Empty Latent Plus] JS extension loaded v1.04 (live info line, auto-hiding, hit-map-safe hidden widgets)");
 
 const NODE_CLASS_NAME = "AGSoft_Empty_Latent_Plus";
 const BAR_H = 20;
