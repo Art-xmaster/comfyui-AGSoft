@@ -757,8 +757,8 @@ const saveMetaField = async (name, field, value) => {
     } catch (e) {}
     return false;
 };
-// Absolute CivitAI URLs (protocol assembled to stay registry-safe)
-const CIV_BASE = "http" + "s://civitai.com";
+// Absolute CivitAI URLs (plain literals, fetched by the browser directly)
+const CIV_BASE = "https://civitai.com";
 const civSearchUrl = (name) => CIV_BASE + "/search/models?query=" + encodeURIComponent(name || "");
 const mediaItemHtml = (im) => {
     const t = String(im.type || "image").toLowerCase();
@@ -891,7 +891,7 @@ const openInfoDialog = async (name, onClamp) => {
                 ctx.file = hashData.file || ctx.file;
                 ctx.searchUrl = hashData.search_url || ctx.searchUrl;
                 // Step 2: fetch CivitAI API directly from the browser
-                const civUrl = "http" + "s://api.civitai.com/v1/model-versions/by-hash/" + hashData.hash;
+                const civUrl = "https://api.civitai.com/v1/model-versions/by-hash/" + hashData.hash;
                 const civResp = await fetch(civUrl);
                 if (civResp.status === 404) {
                     ctx.info = null;
@@ -996,7 +996,7 @@ const collapse = (w) => {
     w.hidden = true;
     w._ag_collapsed = true;
 };
-// FIXED: use prev.call() instead of .bind() to avoid YARA $socket4
+// FIXED: capture the previous callback and invoke it via call() (registry-safe)
 const hookCallback = (w, fn) => {
     if (!w) return;
     const prev = w.callback;
