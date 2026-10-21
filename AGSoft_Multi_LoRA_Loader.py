@@ -50,9 +50,6 @@ strengths skipped. Works headless/API without JS.
 ==============================================================================
 """
 import os
-# Service alias: the registry scanner false-positives on os.environ literals.
-# Behaviour is identical.
-_ENV = getattr(os, "environ")
 import re
 import json
 import math
@@ -75,8 +72,7 @@ MAX_LORA_SLOTS = 20
 LORA_NONE = "none"
 STRENGTH_MIN = -10.0
 STRENGTH_MAX = 10.0
-_TLS = "http" + "s://"
-CIVITAI_WEB = _ENV.get("AGSOFT_CIVITAI_WEB", _TLS + "civitai.com").rstrip("/")
+CIVITAI_WEB = "https://civitai.com"
 _INFO_MEM_CACHE = {}
 _HASH_MEM_CACHE = {}
 _META_STORE = None
@@ -85,10 +81,9 @@ _META_STORE = None
 # Local per-LoRA metadata (Name / Strength Min / Strength Max / Notes / hash)
 # ------------------------------------------------------------------------------
 def _meta_path():
-    base_fn = getattr(folder_paths, "get_user_directory", None)
-    if base_fn is not None:
-        d = os.path.join(base_fn(), "agsoft")
-    else:
+    try:
+        d = os.path.join(folder_paths.get_user_directory(), "agsoft")
+    except Exception:
         d = os.path.join(folder_paths.get_temp_directory(), "agsoft")
     os.makedirs(d, exist_ok=True)
     return os.path.join(d, "lora_meta.json")
