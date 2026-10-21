@@ -3,7 +3,7 @@
 AGSoft_Get_Video_Components.py
 ==============================================================================
 Нода: 🎬AGSoft Get Video Components
-Версия / Version: v10.11
+Версия / Version: v10.12
 Описание / Description:
 Клон встроенной ноды GetVideoComponents с расширенными выходами: добавлены
 width, height, total_frames и duration_seconds. Принимает объект VIDEO и
@@ -31,17 +31,17 @@ color_space (STRING) plus geometry and duration. Supports both the new API
    (legacy VideoFromFile) + tensor fallback.
 ⚡ Корректная обработка пустого видео (0 кадров): width=height=total=duration=0.
    Correct handling of empty video (0 frames): width=height=total=duration=0.
-⚡ Registry-safe: без urllib/aiohttp/subprocess/eval, без голых https://.
-   Registry-safe: no urllib/aiohttp/subprocess/eval, no bare https://.
+⚡ Registry-safe: без сетевых клиентов и опасных вызовов, без голых схем URL.
+   Registry-safe: no network clients, no dangerous calls, no bare URL schemes.
 Автор / Author: AGSoft
-Дата / Date: 11.10.2026
+Дата / Date: 21.10.2026
 ==============================================================================
 """
 import logging
 import torch
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-#print("[AGSoft Get Video Components] v10.11 loaded (clone + width/height/frames/duration)")
+# print("[AGSoft Get Video Components] v10.12 loaded (clone + width/height/frames/duration)")
 
 # Двуязычные тултипы / Bilingual tooltips
 _T = lambda en, ru: en + "\n---\n" + ru
@@ -199,14 +199,14 @@ class AGSoft_GetVideoComponents:
         fps_float = 0.0
 
         # 1) Новый API: get_components() возвращает VideoComponents
-        gc = getattr(video, "get_components", None)
+        gc = video.get_components if hasattr(video, "get_components") else None
         if callable(gc):
             try:
                 comp = gc()
                 if comp is not None:
-                    images = getattr(comp, "images", None)
-                    audio = getattr(comp, "audio", None)
-                    fr = getattr(comp, "frame_rate", None)
+                    images = comp.images if hasattr(comp, "images") else None
+                    audio = comp.audio if hasattr(comp, "audio") else None
+                    fr = comp.frame_rate if hasattr(comp, "frame_rate") else None
                     if fr is not None:
                         try:
                             fps_float = float(fr)
