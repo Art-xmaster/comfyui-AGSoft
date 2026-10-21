@@ -375,7 +375,7 @@ def _extract_video_path(video_obj):
         return ""
     try:
         if VideoFromFile is not None and isinstance(video_obj, VideoFromFile):
-            path = getattr(video_obj, "_VideoFromFile__file", None)
+            path = video_obj._VideoFromFile__file if hasattr(video_obj, "_VideoFromFile__file") else None
             if path and isinstance(path, str) and os.path.exists(path):
                 return os.path.abspath(path)
     except Exception:
