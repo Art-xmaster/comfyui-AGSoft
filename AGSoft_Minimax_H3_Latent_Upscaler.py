@@ -31,7 +31,7 @@ member is upscaled while the audio member passes through untouched.
 ⚡ Автоопределение архитектуры чекпоинта (каналы, блоки, temporal-свёртки)
    Auto-detects checkpoint architecture (channels, blocks, temporal convs)
 Автор / Author: AGSoft
-Дата / Date: 19.10.2026
+Дата / Date: 21.10.2026
 ==============================================================================
 """
 import os
@@ -47,7 +47,7 @@ import comfy.utils
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# print("[AGSoft Minimax H3 Latent Upscaler] v10.19 loaded (smart AV input, video_latent + video_audio_latent outputs)")
+# print("[AGSoft Minimax H3 Latent Upscaler] v10.21 loaded (smart AV input, video_latent + video_audio_latent outputs)")
 
 # Регистрация папки моделей / Model folder registration
 _LATENT_UPSCALE_FOLDER = "latent_upscale_models"
@@ -129,7 +129,9 @@ def _is_nested(value):
             return True
     except Exception:
         pass
-    return bool(getattr(value, "is_nested", False)) and hasattr(value, "unbind")
+    if not hasattr(value, "is_nested") or not hasattr(value, "unbind"):
+        return False
+    return bool(value.is_nested)
 
 def _nested_members(value):
     members = list(value.unbind())
@@ -356,7 +358,7 @@ def load_model(name, device, precision):
             temporal_every=cfg["temporal_every"], temporal_kernel=cfg["temporal_kernel"],
         )
     model.load_state_dict(sd, strict=True, assign=True)
-    model.eval().requires_grad_(False)
+    model.train(False).requires_grad_(False)
     model.to(device)
     del sd
     MODEL_CACHE[key] = model
