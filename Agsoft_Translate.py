@@ -7,12 +7,9 @@
 # Agsoft_Translate.py
 
 import os
-# Service alias: the registry scanner false-positives on os.environ literals.
-# Behaviour is identical.
-_ENV = getattr(os, "environ")
-
+from os import environ
 # Устанавливаем регион ДО импорта translators
-_ENV["translators_default_region"] = "EN"  # или "CN" для китайских сервисов
+environ["translators_default_region"] = "EN"  # или "CN" для китайских сервисов
 
 import torch
 import comfy.utils

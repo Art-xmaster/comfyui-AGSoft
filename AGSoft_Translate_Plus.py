@@ -35,14 +35,10 @@
 # ==============================================================================
 
 import os
-
-# Service alias: the registry scanner false-positives on os.environ literals.
-# Behaviour is identical.
-_ENV = getattr(os, "environ")
-
+from os import environ
 # Устанавливаем регион ДО импорта translators.
 # Set region BEFORE importing translators.
-_ENV["translators_default_region"] = "EN"
+environ["translators_default_region"] = "EN"
 
 import re
 import json
@@ -82,10 +78,9 @@ def _cache_path():
     """
     try:
         if folder_paths is not None:
-            getter = getattr(folder_paths, "get_user_directory", None)
-            if callable(getter):
-                base = getter()
-            else:
+            try:
+                base = folder_paths.get_user_directory()
+            except Exception:
                 base = folder_paths.get_temp_directory()
             cache_dir = os.path.join(base, "agsoft")
         else:
