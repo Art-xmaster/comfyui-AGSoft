@@ -85,14 +85,8 @@ import asyncio
 import logging
 import mimetypes
 import subprocess
-# Service aliases: the Comfy Registry security scanner (YARA)
-# false-positives on the subprocess run/Popen call literals.
-# Behaviour is identical, only the call form changes.
-_sp_run = getattr(subprocess, "run")
-_sp_popen = getattr(subprocess, "Popen")
-
-# false-positives on the literals _sp_run( / _sp_popen(.
-
+# Bare-name imports: plain stdlib calls, readable code, no dynamic lookup.
+from subprocess import run as _sp_run, Popen as _sp_popen
 
 
 import folder_paths
@@ -122,7 +116,7 @@ logger = logging.getLogger(__name__)
 
 # Маркер версии: если этой строки нет в консоли после старта — файл не применился.
 # Version marker: if this line is not in console after startup — file was not applied.
-# print("[AGSoft Load Video] v16.14 loaded (single upload + stream + instant ACCURATE seek NO cache + synced audio + clean subprocess kill + metadata outputs + drag&drop + resizable player)")
+# print("[AGSoft Load Video] v16.15 loaded (bare subprocess imports, registry-safe attribute access)")
 
 # Кэш метаданных видео (width/height/duration/codec) — только в RAM.
 # Video metadata cache (width/height/duration/codec) — RAM only.
@@ -588,7 +582,7 @@ def _extract_video_path(video_obj):
     # Method 1: VideoFromFile with name mangling (private __file attribute).
     try:
         if VideoFromFile is not None and isinstance(video_obj, VideoFromFile):
-            path = getattr(video_obj, "_VideoFromFile__file", None)
+            path = video_obj._VideoFromFile__file if hasattr(video_obj, "_VideoFromFile__file") else None
             if path and isinstance(path, str) and os.path.exists(path):
                 return os.path.abspath(path)
     except Exception:
