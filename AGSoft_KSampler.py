@@ -54,7 +54,7 @@
 #   colors, separate text and box opacity, rounded box corners.
 #
 # Автор / Author: AGSoft
-# Дата / Date: 15.09.2026
+# Дата / Date: 22.10.2026
 # ==============================================================================
 
 import comfy.samplers
@@ -71,6 +71,7 @@ import math
 import time
 import os
 from typing import Dict, Any
+# print("[AGSoft KSampler] v10.22 loaded (registry-safe attribute access in KSampler/options/Contact Sheet)")
 
 
 DEFAULT_AUDIO_SAMPLE_RATE = 32000
@@ -405,7 +406,7 @@ class AGSoft_KSampler:
                 model, noise, positive, negative, cfg,
                 comfy.model_management.get_torch_device(),
                 sampler, sigmas,
-                model_options=getattr(model, "model_options", {}),
+                model_options=model.model_options if hasattr(model, "model_options") else {},
                 latent_image=latent_samples,
                 denoise_mask=None, callback=None, disable_pbar=False, seed=seed
             )
@@ -441,7 +442,7 @@ class AGSoft_KSampler:
         if audio is None:
             audio = {
                 "waveform": torch.zeros((1, 1, 1), dtype=torch.float32),
-                "sample_rate": getattr(audio_vae, "audio_sample_rate", None) or DEFAULT_AUDIO_SAMPLE_RATE,
+                "sample_rate": (audio_vae.audio_sample_rate if hasattr(audio_vae, "audio_sample_rate") else None) or DEFAULT_AUDIO_SAMPLE_RATE,
             }
 
         out_options = {
@@ -461,8 +462,8 @@ class AGSoft_KSampler:
     def _split_av_latent(self, latent_dict):
         samples = latent_dict["samples"] if isinstance(latent_dict, dict) else latent_dict
 
-        tensors = getattr(samples, "tensors", None)
-        if tensors is None and getattr(samples, "is_nested", False):
+        tensors = samples.tensors if hasattr(samples, "tensors") else None
+        if tensors is None and (samples.is_nested if hasattr(samples, "is_nested") else False):
             try:
                 tensors = samples.unbind()
             except Exception:
@@ -507,13 +508,12 @@ class AGSoft_KSampler:
             return None
 
         if sample_rate is None:
-            sample_rate = getattr(audio_vae, "audio_sample_rate", None)
+            sample_rate = audio_vae.audio_sample_rate if hasattr(audio_vae, "audio_sample_rate") else None
         if sample_rate is None:
-            sample_rate = getattr(audio_vae, "sample_rate", None)
+            sample_rate = audio_vae.sample_rate if hasattr(audio_vae, "sample_rate") else None
         if sample_rate is None:
             sample_rate = DEFAULT_AUDIO_SAMPLE_RATE
-
-        if getattr(waveform, "is_nested", False) or hasattr(waveform, "tensors"):
+        if (waveform.is_nested if hasattr(waveform, "is_nested") else False) or hasattr(waveform, "tensors"):
             try:
                 waveform = waveform.tensors[0] if hasattr(waveform, "tensors") else waveform.to_dense()
             except Exception:
