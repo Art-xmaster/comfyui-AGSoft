@@ -143,8 +143,8 @@ class AGSoftAddGuideMiniMaxH3:
 
     def _av_tensors(self, samples):
         # native AV latent: nested, 2 tensors, video 24ch / нативный AV-латент: nested, 2 тензора, видео 24 канала
-        tensors = getattr(samples, "tensors", None)
-        if not getattr(samples, "is_nested", False) or not tensors or len(tensors) != 2:
+        tensors = samples.tensors if hasattr(samples, "tensors") else None
+        if not (hasattr(samples, "is_nested") and samples.is_nested) or not tensors or len(tensors) != 2:
             return None
         video = tensors[0]
         if video.ndim != 5 or video.shape[1] != 24:
@@ -152,7 +152,7 @@ class AGSoftAddGuideMiniMaxH3:
         return video, tensors[1]
 
     def _frame_count(self, video):
-        fpt = getattr(NATIVE, "FRAME_PER_TOKEN", None)
+        fpt = NATIVE.FRAME_PER_TOKEN if hasattr(NATIVE, "FRAME_PER_TOKEN") else None
         if fpt is None:
             raise RuntimeError("core FRAME_PER_TOKEN not found / core FRAME_PER_TOKEN не найден")
         return sum(fpt[k % 5] for k in range(video.shape[2]))
@@ -212,7 +212,7 @@ class AGSoftAddGuideMiniMaxH3:
                 if audio_vae is None:
                     raise ValueError(f"guide #{i}: audio needs audio_vae / гайд #{i}: аудио требует audio_vae")
                 z, rt = NATIVE._encode_ref_audio(audio_vae, aud)
-                fr = getattr(NATIVE, "FRAME_RESCALE", 0.25)
+                fr = NATIVE.FRAME_RESCALE if hasattr(NATIVE, "FRAME_RESCALE") else 0.25
                 max_rt = math.floor(audio_tok.shape[-1] - fr * resolved)
                 if max_rt < 1:
                     raise ValueError(f"guide #{i}: frame {resolved} past audio track end / гайд #{i}: кадр {resolved} за концом аудио")
