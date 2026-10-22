@@ -417,9 +417,9 @@ def _agsoft_tensor_preview_png(tensor, unique_id):
 # ==============================================================================
 _LAST_PREVIEW = {}
 
-_server = getattr(PromptServer, "instance", None) if PromptServer is not None else None
+_server = PromptServer.instance if (PromptServer is not None and hasattr(PromptServer, "instance")) else None
 
-if _server is not None and web is not None and not getattr(_server, "_agsoft_image_mask_resize_route", False):
+if _server is not None and web is not None and not hasattr(_server, "_agsoft_image_mask_resize_route"):
     try:
         # Живой апдейт при вводе пути руками (до очереди).
         # Live update while typing a path (before queue).
