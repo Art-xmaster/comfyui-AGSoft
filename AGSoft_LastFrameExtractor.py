@@ -186,13 +186,13 @@ Extracts a single frame from the end of a video file. Allows you to choose a spe
             logger.info("Detected VHS object, attempting direct frame access")
             try:
                 if hasattr(video_obj, 'get_frame'):
-                    frame_count = getattr(video_obj, 'frame_count', 0)
-                    width = getattr(video_obj, 'width', 0)
-                    height = getattr(video_obj, 'height', 0)
-                    fps = getattr(video_obj, 'fps', 0)
+                    frame_count = video_obj.frame_count if hasattr(video_obj, 'frame_count') else 0
+                    width = video_obj.width if hasattr(video_obj, 'width') else 0
+                    height = video_obj.height if hasattr(video_obj, 'height') else 0
+                    fps = video_obj.fps if hasattr(video_obj, 'fps') else 0
                     
                     if frame_count == 0:
-                        frame_count = getattr(video_obj, 'total_frames', 0)
+                        frame_count = video_obj.total_frames if hasattr(video_obj, 'total_frames') else 0
                     
                     target_index = self._calculate_end_index(frame_count, frame_offset_from_end)
                     
@@ -237,7 +237,9 @@ Extracts a single frame from the end of a video file. Allows you to choose a spe
                     video_path, frame_offset_from_end
                 )
             finally:
-                if video_path != getattr(video_obj, 'path', None) and video_path != getattr(video_obj, 'video_path', None):
+                path_attr = video_obj.path if hasattr(video_obj, 'path') else None
+                video_path_attr = video_obj.video_path if hasattr(video_obj, 'video_path') else None
+                if video_path != path_attr and video_path != video_path_attr:
                     try:
                         if os.path.exists(video_path):
                             os.unlink(video_path)
