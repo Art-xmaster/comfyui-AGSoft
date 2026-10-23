@@ -24,7 +24,7 @@ app.registerExtension({
                     // Force list to be an array, not sure why sometimes it is/isn't
                     if (!(list instanceof Array)) list = [list];
                     for (const l of list) {
-                        const w = ComfyWidgets["STRING"](this, "text_" + this.widgets?.length ?? 0, ["STRING", { multiline: true }], app).widget;
+                    const w = ComfyWidgets.STRING(this, "text_" + this.widgets?.length ?? 0, ["STRING", { multiline: true }], app).widget;
                         w.inputEl.readOnly = true;
                         w.inputEl.style.opacity = 0.6;
                         w.value = l;

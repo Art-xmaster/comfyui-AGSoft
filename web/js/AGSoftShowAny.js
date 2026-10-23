@@ -37,7 +37,7 @@ app.registerExtension({
                     
                     for (const l of list) {
                         // Создаем многострочное текстовое поле
-                        const w = ComfyWidgets["STRING"](this, "text_" + this.widgets?.length ?? 0, ["STRING", { multiline: true }], app).widget;
+                        const w = ComfyWidgets.STRING(this, "text_" + this.widgets?.length ?? 0, ["STRING", { multiline: true }], app).widget;
                         w.inputEl.readOnly = true;  // Делаем поле только для чтения
                         w.inputEl.style.opacity = 0.6;  // Делаем полупрозрачным
                         w.value = l;  // Устанавливаем значение
