@@ -541,7 +541,7 @@ class AGSoftMiniMaxH3Cache:
         m = model.clone()
         dm = m.model.diffusion_model
 
-        if not getattr(dm, "_agsoft_patched", False):
+        if not (dm._agsoft_patched if hasattr(dm, "_agsoft_patched") else False):
             # save the ORIGINAL bound method, then shadow _forward on the instance
             # сохраняем ОРИГИНАЛЬНЫЙ bound-метод и подменяем _forward на инстансе
             dm._agsoft_orig_forward = dm._forward
