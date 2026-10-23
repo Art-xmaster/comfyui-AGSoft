@@ -36,7 +36,7 @@ class Pytorch_RetinaFace:
 
         self.net = RetinaFace(cfg=self.cfg, weights_path=weights_path, phase='test', device=self.device).to(self.device)
         self.load_model_weights(pretrained_path)
-        self.net.eval()
+        self.net.train(False)
 
     def check_keys(self, model, pretrained_state_dict):
         ckpt_keys = set(pretrained_state_dict.keys())
