@@ -194,7 +194,7 @@ getCanvasElement() {
          }
          app.graph.setDirtyCanvas(true, true);
          app.canvas.setDirty(true, true);
-         getDrawTextConfig = this.getDrawTextConfig["bind"](this);
+         getDrawTextConfig = (ctx, widget) => this.getDrawTextConfig(ctx, widget);
          app.canvas.draw(true, true);
          await new Promise((resolve) => setTimeout(resolve, 300));
          app.canvas.draw(true, true);
