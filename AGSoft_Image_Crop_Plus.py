@@ -209,12 +209,13 @@ _web = None
 try:
     from aiohttp import web as _web
     from server import PromptServer as _PS
-    _server = getattr(_PS, "instance", None)
+    _server = _PS.instance if hasattr(_PS, "instance") else None
 except Exception:
     _web = None
     _server = None
 
-if _server is not None and _web is not None and not getattr(_server, "_agsoft_crop_route", False):
+_route_flag = _server._agsoft_crop_route if hasattr(_server, "_agsoft_crop_route") else False
+if _server is not None and _web is not None and not _route_flag:
     try:
         @_server.routes.post("/agsoft/crop_ensure_preview")
         async def agsoft_crop_ensure_preview(request):
