@@ -280,13 +280,13 @@ Extracts frames from a video file with flexible selection options. Supports vari
                 # У VHS объектов обычно есть метод get_frame или атрибут frames
                 if hasattr(video_obj, 'get_frame'):
                     # Получаем информацию о видео
-                    frame_count = getattr(video_obj, 'frame_count', 0)
-                    width = getattr(video_obj, 'width', 0)
-                    height = getattr(video_obj, 'height', 0)
-                    fps = getattr(video_obj, 'fps', 0)
+                    frame_count = video_obj.frame_count if hasattr(video_obj, 'frame_count') else 0
+                    width = video_obj.width if hasattr(video_obj, 'width') else 0
+                    height = video_obj.height if hasattr(video_obj, 'height') else 0
+                    fps = video_obj.fps if hasattr(video_obj, 'fps') else 0
                     
                     if frame_count == 0:
-                        frame_count = getattr(video_obj, 'total_frames', 0)
+                        frame_count = video_obj.total_frames if hasattr(video_obj, 'total_frames') else 0
                     
                     indices = self._calculate_frame_indices(
                         frame_selection_mode, frame_count,
@@ -346,7 +346,9 @@ Extracts frames from a video file with flexible selection options. Supports vari
                 )
             finally:
                 # Если использовали временный файл - удаляем его
-                if video_path != getattr(video_obj, 'path', None) and video_path != getattr(video_obj, 'video_path', None):
+                path_attr = video_obj.path if hasattr(video_obj, 'path') else None
+                video_path_attr = video_obj.video_path if hasattr(video_obj, 'video_path') else None
+                if video_path != path_attr and video_path != video_path_attr:
                     try:
                         if os.path.exists(video_path):
                             os.unlink(video_path)
