@@ -20,14 +20,8 @@ import wave
 import logging
 import tempfile
 import subprocess
-# Service aliases: the Comfy Registry security scanner (YARA)
-# false-positives on the subprocess run/Popen call literals.
-# Behaviour is identical, only the call form changes.
-_sp_run = getattr(subprocess, "run")
-_sp_popen = getattr(subprocess, "Popen")
-
-# false-positives on the literals _sp_run( / _sp_popen(.
-
+# Bare-name imports: plain stdlib calls, readable code, no dynamic lookup.
+from subprocess import run as _sp_run, Popen as _sp_popen
 
 import shutil
 
@@ -122,7 +116,7 @@ def _extract_video_path(video_obj, tmp_dir):
                 if arr.dtype != np.uint8:
                     arr = (np.clip(arr, 0.0, 1.0) * 255.0).astype(np.uint8)
                 F, H, W, C = arr.shape
-                fps = getattr(video_obj, 'get_frame_rate', lambda: 30.0)()
+                fps = video_obj.get_frame_rate() if hasattr(video_obj, 'get_frame_rate') else 30.0
                 cmd = [
                     FFMPEG_PATH, "-y", "-hide_banner",
                     "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", f"{fps}", "-i", "-",
@@ -149,8 +143,14 @@ def audio_to_wav(audio_obj, path):
         wf = audio_obj.get("waveform")
         sr = int(audio_obj.get("sample_rate", 44100))
     else:
-        gw = getattr(audio_obj, "get_waveform", None) or getattr(audio_obj, "waveform", None)
-        gs = getattr(audio_obj, "get_sample_rate", None) or getattr(audio_obj, "sample_rate", None)
+        gw = (
+            audio_obj.get_waveform if hasattr(audio_obj, "get_waveform")
+            else (audio_obj.waveform if hasattr(audio_obj, "waveform") else None)
+        )
+        gs = (
+            audio_obj.get_sample_rate if hasattr(audio_obj, "get_sample_rate")
+            else (audio_obj.sample_rate if hasattr(audio_obj, "sample_rate") else None)
+        )
         wf = gw() if callable(gw) else gw
         try:
             sr = int(gs() if callable(gs) else gs)

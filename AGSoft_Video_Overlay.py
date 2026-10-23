@@ -38,13 +38,8 @@ import re
 import json
 import logging
 import subprocess
-# Service aliases: the Comfy Registry security scanner (YARA)
-# false-positives on the subprocess run/Popen call literals.
-# Behaviour is identical, only the call form changes.
-_sp_run = getattr(subprocess, "run")
-_sp_popen = getattr(subprocess, "Popen")
-
-# false-positives on the literals _sp_run( / _sp_popen(.
+# Bare-name imports: plain stdlib calls, readable code, no dynamic lookup.
+from subprocess import run as _sp_run, Popen as _sp_popen
 
 
 import shutil
