@@ -137,7 +137,7 @@ class AGSoftReferenceToLatent:
         # --- Получение размеров и подготовка к изменению размера ---
         # VAE требует, чтобы размеры изображения были кратны downscale_factor (обычно 8)
         original_height, original_width = first_image.shape[1], first_image.shape[2]
-        downscale_factor = getattr(vae, 'downscale_factor', 8)
+        downscale_factor = vae.downscale_factor if hasattr(vae, 'downscale_factor') else 8
         
         # В современных VAE (SDXL, Flux) требуется кратность 16, но оставим логику как в оригинале
         valid_multiple = downscale_factor * 8
