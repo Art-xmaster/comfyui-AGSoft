@@ -157,12 +157,12 @@ def _video_to_frames(video):
     if isinstance(video, torch.Tensor):
         t = video
     else:
-        gc = getattr(video, "get_components", None)
+        gc = video.get_components if hasattr(video, "get_components") else None
         if callable(gc):
             try:
                 comp = gc()
                 if comp is not None:
-                    imgs = getattr(comp, "images", None)
+                    imgs = comp.images if hasattr(comp, "images") else None
                     if isinstance(imgs, torch.Tensor):
                         t = imgs
             except Exception as e:
@@ -188,7 +188,7 @@ def _encode_ref_audio(audio_vae, audio):
     """
     waveform = audio["waveform"]
     sr = audio["sample_rate"]
-    vae_sr = getattr(audio_vae, "audio_sample_rate", 32000)
+    vae_sr = audio_vae.audio_sample_rate if hasattr(audio_vae, "audio_sample_rate") else 32000
     if sr != vae_sr:
         waveform = comfy.audio.resample(waveform, sr, vae_sr)
     z = audio_vae.encode(waveform[:1].movedim(1, -1))
