@@ -140,8 +140,13 @@ app.registerExtension({
             const num = (n) => { const w = getW(n); return w ? Number(w.value) : 0; };
             const clamp = (v, lo, hi) => {
                 if (hi < lo) { const t = lo; lo = hi; hi = t; }
-                const span = (hi - lo) + 1;
-                return lo + ((((v - lo) % span) + span) % span);
+                if (v >= lo && v <= hi) return v;
+                const bLo = BigInt(lo);
+                const bHi = BigInt(hi);
+                const bV = BigInt(Math.round(v));
+                const span = bHi - bLo + 1n;
+                const rem = ((bV - bLo) % span + span) % span;
+                return Number(bLo + rem);
             };
             const usedNow = () => clamp(num("seed") + num("offset"), num("min_seed"), num("max_seed"));
             const sync = () => {
