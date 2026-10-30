@@ -20,27 +20,23 @@
 // ⚡ 30 строк максимум (MAX_ROWS = 30).
 //   Up to 30 rows (MAX_ROWS = 30).
 // ⚡ Контекстное меню строки (правый клик): Move Up / Move Down / Duplicate /
-//   Remove — операции над скрытыми нативными виджетами строки.
+//   Remove — операции над скрытым и нативными виджетами строки.
 //   Row context menu (right-click): Move Up / Move Down / Duplicate / Remove —
 //   operations over the row's hidden native widgets.
 // ⚡ Подсветка: series-режим (single/dual/lora) — серверный agsoft_series_step
-//   из KSampler; current-режим — позиция из executed-события options-ноды
-//   (парсинг status "…: i/N").
+//   из KSampler или KSampler Plus; current-режим — позиция из executed-события
+//   options-ноды (парсинг status "…: i/N").
 //   Highlighting: series mode (single/dual/lora) — server agsoft_series_step
-//   from the KSampler; current mode — position from the options node's own
-//   executed event (parsing status "…: i/N").
+//   from KSampler or KSampler Plus; current mode — position from the options
+//   node's own executed event (parsing status "…: i/N").
 // ⚡ Пустое значение строки single/dual коммитится дефолтом в нативный виджет;
 //   в lora пустые ячейки остаются пустыми (пусто = пропуск строки).
 //   Empty single/dual rows commit defaults into native widgets; lora cells
 //   stay empty (empty = skip row).
 //
-// JS extension for the 🛠 AGSoft KSampler options_single / options_dual /
-// options_lora nodes. (See the RU list above — the same features.)
-// 
 // Автор / Author: AGSoft
-// Дата / Date: 15.09.2026
+// Дата / Date: 30.10.2026
 // ==============================================================================
-
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
@@ -49,57 +45,37 @@ const PARAMS = ["seed", "steps", "cfg", "sampler", "scheduler", "sigmas"];
 const SINGLE = "AGSoftKSamplerOptionsSingle";
 const DUAL = "AGSoftKSamplerOptionsDual";
 const LORA = "AGSoftKSamplerOptionsLora";
-const KSAMPLER = "AGSoft_KSampler";
+// Ноды-сэмплеры, чей вход в executing вооружает подсветку строк серии.
+// Sampler nodes whose executing entry arms the series row highlighting.
+const KSAMPLERS = ["AGSoft_KSampler", "AGSoft_KSampler_Plus"];
+const isKsampler = (node) => !!node && KSAMPLERS.includes(node.comfyClass);
 const ROW_H = 26;
 const BTN_H = 26;
 const GAP = 4;
-
 const CSS = `
 .agsopt-root{display:flex;flex-direction:column;gap:${GAP}px;width:100%;pointer-events:none;}
 .agsopt-row{display:flex;gap:4px;align-items:center;height:${ROW_H}px;pointer-events:auto;border-radius:4px;}
-.agsopt-row.agsopt-active{outline:1px solid var(--ags-accent,#4a7dba);
-  background:color-mix(in srgb, var(--ags-accent,#4a7dba) 14%, transparent);}
-.agsopt-row select,.agsopt-row input{
-  background:#353535;background:color-mix(in srgb, var(--ags-bg,#353535) 70%, black);
-  color:#ddd;color:var(--ags-text,#ddd);
-  border:1px solid #555;border:1px solid color-mix(in srgb, var(--ags-bg,#353535) 42%, white);
-  border-radius:4px;height:22px;font-size:11px;padding:0 4px;box-sizing:border-box;}
+.agsopt-row.agsopt-active{outline:1px solid var(--ags-accent,#4a7dba);background:color-mix(in srgb, var(--ags-accent,#4a7dba) 14%, transparent);}
+.agsopt-row select,.agsopt-row input{background:#353535;background:color-mix(in srgb, var(--ags-bg,#353535) 70%, black);color:#ddd;color:var(--ags-text,#ddd);border:1px solid #555;border:1px solid color-mix(in srgb, var(--ags-bg,#353535) 42%, white);border-radius:4px;height:22px;font-size:11px;padding:0 4px;box-sizing:border-box;}
 .agsopt-row select.param{flex:0 0 84px;}
 .agsopt-row input.val,.agsopt-row select.val{flex:1;min-width:0;}
-.agsopt-step{display:flex;align-items:center;flex:1;min-width:0;height:22px;
-  background:#353535;background:color-mix(in srgb, var(--ags-bg,#353535) 70%, black);
-  color:#ddd;color:var(--ags-text,#ddd);
-  border:1px solid #555;border:1px solid color-mix(in srgb, var(--ags-bg,#353535) 42%, white);
-  border-radius:4px;box-sizing:border-box;overflow:hidden;}
-.agsopt-step button{flex:0 0 16px;height:100%;border:none;background:transparent;color:inherit;
-  cursor:pointer;font-size:8px;line-height:1;padding:0;}
+.agsopt-step{display:flex;align-items:center;flex:1;min-width:0;height:22px;background:#353535;background:color-mix(in srgb, var(--ags-bg,#353535) 70%, black);color:#ddd;color:var(--ags-text,#ddd);border:1px solid #555;border:1px solid color-mix(in srgb, var(--ags-bg,#353535) 42%, white);border-radius:4px;box-sizing:border-box;overflow:hidden;}
+.agsopt-step button{flex:0 0 16px;height:100%;border:none;background:transparent;color:inherit;cursor:pointer;font-size:8px;line-height:1;padding:0;}
 .agsopt-step button:hover{background:rgba(128,128,128,.25);}
-.agsopt-step input[type=number]{flex:1;min-width:0;width:auto;height:100%;background:transparent;
-  border:none;color:inherit;text-align:center;font-size:11px;padding:0;
-  appearance:textfield;-moz-appearance:textfield;}
-.agsopt-step input[type=number]::-webkit-outer-spin-button,
-.agsopt-step input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
-.agsopt-row input[type=checkbox]{
-  appearance:none;-webkit-appearance:none;width:28px;height:14px;border-radius:8px;
-  background:#555;background:color-mix(in srgb, var(--ags-bg,#555) 55%, black);
-  position:relative;cursor:pointer;outline:none;border:none;flex:0 0 auto;margin:0;}
-.agsopt-row input[type=checkbox]::after{
-  content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;
-  background:#999;background:color-mix(in srgb, var(--ags-text,#999) 70%, transparent);transition:.15s;}
+.agsopt-step input[type=number]{flex:1;min-width:0;width:auto;height:100%;background:transparent;border:none;color:inherit;text-align:center;font-size:11px;padding:0;appearance:textfield;-moz-appearance:textfield;}
+.agsopt-step input[type=number]::-webkit-outer-spin-button,.agsopt-step input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0;}
+.agsopt-row input[type=checkbox]{appearance:none;-webkit-appearance:none;width:28px;height:14px;border-radius:8px;background:#555;background:color-mix(in srgb, var(--ags-bg,#555) 55%, black);position:relative;cursor:pointer;outline:none;border:none;flex:0 0 auto;margin:0;}
+.agsopt-row input[type=checkbox]::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:#999;background:color-mix(in srgb, var(--ags-text,#999) 70%, transparent);transition:.15s;}
 .agsopt-row input[type=checkbox]:checked{background:#4a7dba;background:var(--ags-accent,#4a7dba);}
 .agsopt-row input[type=checkbox]:checked::after{left:16px;background:#fff;}
 .agsopt-btns{display:flex;gap:6px;height:${BTN_H}px;pointer-events:auto;}
-.agsopt-btns button{flex:1;background:#4a4a4a;
-  background:color-mix(in srgb, var(--ags-bg,#4a4a4a) 80%, white);
-  color:#eee;color:var(--ags-text,#eee);
-  border:1px solid #5a5a5a;border:1px solid color-mix(in srgb, var(--ags-bg,#4a4a4a) 48%, white);
-  border-radius:4px;height:${BTN_H}px;cursor:pointer;font-size:11px;}
+.agsopt-btns button{flex:1;background:#4a4a4a;background:color-mix(in srgb, var(--ags-bg,#4a4a4a) 80%, white);color:#eee;color:var(--ags-text,#eee);border:1px solid #5a5a5a;border:1px solid color-mix(in srgb, var(--ags-bg,#4a4a4a) 48%, white);border-radius:4px;height:${BTN_H}px;cursor:pointer;font-size:11px;}
 .agsopt-btns button:hover{background:#5a5a5a;background:color-mix(in srgb, var(--ags-bg,#4a4a4a) 62%, white);}
 .agsopt-menu{position:fixed;z-index:10001;background:#2a2a2a;border:1px solid #555;border-radius:6px;padding:4px;min-width:150px;box-shadow:0 4px 12px rgba(0,0,0,.5);}
 .agsopt-menu-item{padding:5px 10px;color:#ddd;color:var(--ags-text,#ddd);font-size:11px;border-radius:4px;cursor:pointer;}
 .agsopt-menu-item:hover{background:#3a3a3a;background:color-mix(in srgb, var(--ags-bg,#3a3a3a) 80%, white);}
-.agsopt-menu-item.disabled{opacity:.4;pointer-events:none;}`;
-
+.agsopt-menu-item.disabled{opacity:.4;pointer-events:none;}
+`;
 let cssDone = false;
 const injectCss = () => {
     if (cssDone) return;
@@ -108,39 +84,33 @@ const injectCss = () => {
     el.textContent = CSS;
     document.head.appendChild(el);
 };
-
 const nw = (node, name) => (node.widgets || []).find(w => w.name === name) || null;
-
 const collapse = (w) => {
     if (!w || w._ags_collapsed) return;
     w.computeSize = () => [0, -4];
     w.hidden = true;
     w._ags_collapsed = true;
 };
-
 const hookCallback = (w, fn) => {
-if (!w) return;
-const prev = w.callback;
-const oc = prev ? (v) => prev.call(w, v) : null;
-w.callback = (v) => {
-if (oc) oc(v);
-fn(v);
+    if (!w) return;
+    const prev = w.callback;
+    const oc = prev ? (v) => prev.call(w, v) : null;
+    w.callback = (v) => {
+        if (oc) oc(v);
+        fn(v);
+    };
 };
-};
-
 const kindOf = (p) =>
     (p === "seed" || p === "steps") ? "int"
     : p === "cfg" ? "float"
     : (p === "sampler" || p === "scheduler") ? "list"
     : "text";
-
 const defaultFor = (p, list) =>
     p === "seed" ? "0"
     : p === "steps" ? "20"
     : p === "cfg" ? "1"
     : (p === "sampler" || p === "scheduler") ? String((list || [])[0] || "")
     : "";
-
 // ------------------------------------------------------------------------------
 // Контекстное меню: глобальное закрытие по клику вне и по Escape.
 // Context menu: global dismissal on outside press and Escape.
@@ -151,7 +121,6 @@ document.addEventListener("pointerdown", (e) => {
     if (ctxMenu && !ctxMenu.contains(e.target)) hideMenu();
 }, true);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") hideMenu(); }, true);
-
 const showMenu = (x, y, items) => {
     hideMenu();
     ctxMenu = document.createElement("div");
@@ -172,7 +141,6 @@ const showMenu = (x, y, items) => {
     if (r.right > window.innerWidth) ctxMenu.style.left = Math.max(4, window.innerWidth - r.width - 8) + "px";
     if (r.bottom > window.innerHeight) ctxMenu.style.top = Math.max(4, window.innerHeight - r.height - 8) + "px";
 };
-
 // ------------------------------------------------------------------------------
 // Ячейка param+value (single/dual): dropdown параметра и контрол по типу;
 // источник списка (sampler/scheduler) следует за выбранным param.
@@ -182,7 +150,6 @@ const showMenu = (x, y, items) => {
 const makeCell = (node, paramW, valueW) => {
     const wrap = document.createElement("div");
     wrap.style.display = "contents";
-
     const paramSel = document.createElement("select");
     paramSel.className = "param";
     for (const p of PARAMS) {
@@ -191,23 +158,19 @@ const makeCell = (node, paramW, valueW) => {
         o.textContent = p;
         paramSel.appendChild(o);
     }
-
     let valCtl = null;
     let syncing = false;
-
     const listWFor = (p) =>
         p === "scheduler" ? nw(node, "_scheduler_list") : nw(node, "_sampler_list");
     const listValuesFor = (p) => {
         const w = listWFor(p);
         return (w && w.options && w.options.values) || [];
     };
-
     const commitNative = (v) => {
         if (!valueW) return;
         valueW.value = String(v);
         if (valueW.callback) valueW.callback(valueW.value);
     };
-
     const buildValueCtl = (param) => {
         if (valCtl) valCtl.remove();
         const kind = kindOf(param);
@@ -232,7 +195,6 @@ const makeCell = (node, paramW, valueW) => {
         valCtl.addEventListener("change", () => commitNative(valCtl.value));
         wrap.appendChild(valCtl);
     };
-
     const sync = () => {
         if (syncing) return;
         syncing = true;
@@ -261,7 +223,6 @@ const makeCell = (node, paramW, valueW) => {
             syncing = false;
         }
     };
-
     paramSel.addEventListener("change", () => {
         if (paramW) {
             paramW.value = paramSel.value;
@@ -270,14 +231,12 @@ const makeCell = (node, paramW, valueW) => {
         commitNative(defaultFor(paramSel.value, listValuesFor(paramSel.value)));
         sync();
     });
-
     wrap.append(paramSel);
     hookCallback(paramW, () => sync());
     hookCallback(valueW, () => sync());
     sync();
     return { wrap, sync };
 };
-
 // ------------------------------------------------------------------------------
 // Горизонтальный степер (lora): [◄][значение][►] как в 🧩 AGSoft Multi LoRA
 // Loader. Клик ±0.05, Shift ±0.01, ручной ввод сохранён. Значение живёт в
@@ -289,32 +248,26 @@ const makeCell = (node, paramW, valueW) => {
 const makeStepCell = (node, valueW, titleText) => {
     const wrap = document.createElement("div");
     wrap.style.display = "contents";
-
     const box = document.createElement("div");
     box.className = "agsopt-step";
     box.title = titleText;
-
     const dec = document.createElement("button");
     dec.textContent = "◀";
     dec.title = "−0.05 (Shift: −0.01)";
-
     const inp = document.createElement("input");
     inp.type = "number";
     inp.step = "0.01";
     inp.min = "-10";
     inp.max = "10";
     inp.title = titleText;
-
     const inc = document.createElement("button");
     inc.textContent = "▶";
     inc.title = "+0.05 (Shift: +0.01)";
-
     const commit = () => {
         if (!valueW) return;
         valueW.value = String(inp.value);
         if (valueW.callback) valueW.callback(valueW.value);
     };
-
     const bump = (dir, ev) => {
         const d = ev && ev.shiftKey ? 0.01 : 0.05;
         const cur = parseFloat(inp.value);
@@ -329,18 +282,15 @@ const makeStepCell = (node, valueW, titleText) => {
     dec.addEventListener("click", (e) => { e.preventDefault(); bump(-1, e); });
     inc.addEventListener("click", (e) => { e.preventDefault(); bump(1, e); });
     inp.addEventListener("change", commit);
-
     const sync = () => {
         inp.value = String(valueW ? valueW.value : "");
     };
-
     hookCallback(valueW, () => sync());
     box.append(dec, inp, inc);
     wrap.append(box);
     sync();
     return { wrap, sync };
 };
-
 // ------------------------------------------------------------------------------
 // Сборка UI ноды: строки поверх скрытых нативных виджетов, кнопки
 // + Add / – Remove, контекстное меню строки. kind: single | dual | lora.
@@ -350,13 +300,11 @@ const makeStepCell = (node, valueW, titleText) => {
 const buildUI = (node, kind) => {
     const root = document.createElement("div");
     root.className = "agsopt-root";
-
     const activeW = nw(node, "active_rows");
     const PREFIXES =
         kind === "dual" ? ["enabled_", "param_a_", "value_a_", "param_b_", "value_b_"]
         : kind === "lora" ? ["enabled_", "strength_m_", "strength_c_"]
         : ["enabled_", "param_", "value_"];
-
     const getActive = () => Math.min(MAX_ROWS, Math.max(1, parseInt(activeW ? activeW.value : 1, 10) || 1));
     const setActive = (v) => {
         if (!activeW) return;
@@ -364,7 +312,6 @@ const buildUI = (node, kind) => {
         if (activeW.callback) activeW.callback(activeW.value);
         refresh();
     };
-
     // ---- Значения строк через скрытые нативные виджеты ----
     // ---- Row value transport over hidden native widgets ----
     const getRowVals = (i) => PREFIXES.map(p => { const w = nw(node, p + i); return w ? w.value : null; });
@@ -376,9 +323,7 @@ const buildUI = (node, kind) => {
         kind === "dual" ? [true, "sampler", "", "scheduler", ""]
         : kind === "lora" ? [true, "1", "1"]
         : [true, "steps", ""];
-
     const syncAll = () => { for (const r of rows) r.sync(); };
-
     const moveRow = (i, dir) => {
         const j = i + dir;
         if (j < 1 || j > getActive()) return;
@@ -401,13 +346,11 @@ const buildUI = (node, kind) => {
         setActive(a - 1);
         syncAll();
     };
-
     const rows = [];
     for (let i = 1; i <= MAX_ROWS; i++) {
         const enW = nw(node, `enabled_${i}`);
         const el = document.createElement("div");
         el.className = "agsopt-row";
-
         const en = document.createElement("input");
         en.type = "checkbox";
         en.title = "on / off";
@@ -416,7 +359,6 @@ const buildUI = (node, kind) => {
         });
         hookCallback(enW, (v) => { en.checked = !!v; });
         el.appendChild(en);
-
         const cells = [];
         if (kind === "dual") {
             cells.push(makeCell(node, nw(node, `param_a_${i}`), nw(node, `value_a_${i}`)));
@@ -428,7 +370,6 @@ const buildUI = (node, kind) => {
             cells.push(makeCell(node, nw(node, `param_${i}`), nw(node, `value_${i}`)));
         }
         for (const cell of cells) el.appendChild(cell.wrap);
-
         // Контекстное меню строки: Move Up / Move Down / Duplicate / Remove.
         // Row context menu: Move Up / Move Down / Duplicate / Remove.
         el.addEventListener("contextmenu", (e) => {
@@ -441,11 +382,9 @@ const buildUI = (node, kind) => {
                 { label: "🗑️ Remove", disabled: a <= 1, cb: () => removeRow(i) },
             ]);
         });
-
         rows.push({ el, i, cells, sync: () => { en.checked = !!(enW && enW.value); for (const c of cells) c.sync(); } });
         root.appendChild(el);
     }
-
     const btns = document.createElement("div");
     btns.className = "agsopt-btns";
     const addBtn = document.createElement("button");
@@ -456,11 +395,9 @@ const buildUI = (node, kind) => {
     delBtn.addEventListener("click", (e) => { e.preventDefault(); setActive(getActive() - 1); });
     btns.append(addBtn, delBtn);
     root.appendChild(btns);
-
     const uiHeight = (a) => BTN_H + a * ROW_H + (a + 1) * GAP;
     const dw = node.addDOMWidget("agsoft_ksampler_options_ui", "div", root, { serialize: false });
     dw.computeSize = (w) => [w || 220, uiHeight(getActive())];
-
     const refresh = () => {
         const a = getActive();
         for (const r of rows) r.el.style.display = r.i <= a ? "flex" : "none";
@@ -469,21 +406,17 @@ const buildUI = (node, kind) => {
         node.setDirtyCanvas(true, true);
         if (app.graph && app.graph.setDirtyCanvas) app.graph.setDirtyCanvas(true);
     };
-
     const origOnConfigure = node.onConfigure;
     node.onConfigure = function (info) {
         if (origOnConfigure) origOnConfigure.apply(this, arguments);
         setTimeout(() => { syncAll(); refresh(); }, 0);
     };
-
     node._ags_rows = rows;
     node._ags_root = root;
-
     refresh();
     setTimeout(() => { syncAll(); refresh(); }, 0);
     return root;
 };
-
 // ------------------------------------------------------------------------------
 // Хелперы подсветки: строки, участвующие в текущем шаге серии.
 // Highlight helpers: rows participating in the current series step.
@@ -505,7 +438,6 @@ const highlightRows = (node, rowsArr) => {
         if (row) row.el.classList.add("agsopt-active");
     }
 };
-
 // Строки, участвующие в серии (зеркалит серверную логику).
 // Rows participating in the series (mirrors server logic).
 const seriesRows = (node) => {
@@ -514,7 +446,6 @@ const seriesRows = (node) => {
     const grid = dual && nw(node, "pair_mode") && nw(node, "pair_mode").value === "grid";
     const active = Math.min(MAX_ROWS, Math.max(1, parseInt((nw(node, "active_rows") || {}).value, 10) || 1));
     const has = (name) => String((nw(node, name) || {}).value || "").trim() !== "";
-
     if (lora) {
         const list = [];
         for (let i = 1; i <= active; i++) {
@@ -549,7 +480,6 @@ const seriesRows = (node) => {
     }
     return { rows: [...new Set([...colA, ...colB])], grid: true, colA, colB };
 };
-
 const rowsForPos = (node, pos) => {
     const s = seriesRows(node);
     if (!s.grid) return [s.rows[pos]];
@@ -557,13 +487,11 @@ const rowsForPos = (node, pos) => {
     const ka = Math.floor(pos / Math.max(1, s.colB.length));
     return [s.colA[ka], s.colB[kb]];
 };
-
 // ------------------------------------------------------------------------------
 // Регистрация расширения: построение UI нод и подсветка строк серии.
 // Extension registration: node UI building and series row highlighting.
 // ------------------------------------------------------------------------------
 let armedSeriesNode = null;
-
 const optionsSourceOf = (ksNode) => {
     const inp = (ksNode.inputs || []).find(i => i.name === "options");
     if (!inp || inp.link == null) return null;
@@ -571,16 +499,13 @@ const optionsSourceOf = (ksNode) => {
     if (!link) return null;
     return app.graph.getNodeById(link.origin_id) || null;
 };
-
 app.registerExtension({
     name: "AGSoft.KSamplerOptions",
-
     async nodeCreated(node) {
         const dual = node.comfyClass === DUAL;
         const lora = node.comfyClass === LORA;
         if (node.comfyClass !== SINGLE && !dual && !lora) return;
         injectCss();
-
         // Скрываем служебные и строчные виджеты.
         // Hide service and row widgets.
         for (const w of node.widgets || []) {
@@ -594,21 +519,19 @@ app.registerExtension({
         buildUI(node, dual ? "dual" : lora ? "lora" : "single");
     },
 });
-
-// Серверный шаг серии (series-режим KSampler): подсветка строк.
-// Server series step (KSampler series mode): highlight the rows.
+// Серверный шаг серии (series-режим KSampler / KSampler Plus): подсветка строк.
+// Server series step (KSampler / KSampler Plus series mode): highlight rows.
 api.addEventListener("agsoft_series_step", (e) => {
     const d = e.detail || {};
     if (armedSeriesNode) highlightRows(armedSeriesNode, d.rows);
 });
-
 // executing: вооружаем options-ноду серии (single/dual/lora) при входе в KSampler.
 // executing: arm the series options node (single/dual/lora) when KSampler starts.
 api.addEventListener("executing", (e) => {
     const id = e.detail;
     if (id == null) { clearAllActive(); armedSeriesNode = null; return; }
     const node = app.graph.getNodeById(id);
-    if (node && node.comfyClass === KSAMPLER) {
+    if (isKsampler(node)) {
         const src = optionsSourceOf(node);
         if (src && (src.comfyClass === SINGLE || src.comfyClass === DUAL || src.comfyClass === LORA)
             && (nw(src, "output_mode") || {}).value === "series") {
@@ -622,14 +545,13 @@ api.addEventListener("executing", (e) => {
         }
     }
 });
-
 // executed: current-режим — позиция из status; KSampler finished — сброс.
 // executed: current mode — position from status; KSampler finished: clear.
 api.addEventListener("executed", (e) => {
     const d = e.detail || {};
     const node = app.graph.getNodeById(d.node);
     if (!node) return;
-    if (node.comfyClass === KSAMPLER) {
+    if (isKsampler(node)) {
         clearAllActive();
         armedSeriesNode = null;
         return;
