@@ -57,7 +57,7 @@ import json
 import time
 from typing import Dict, Any
 
-print("[AGSoft KSampler Plus] v10.30 loaded (tiled VAE decode + logs + sampling cache)")
+# print("[AGSoft KSampler Plus] v10.30 loaded (tiled VAE decode + logs + sampling cache)")
 
 DEFAULT_AUDIO_SAMPLE_RATE = 32000
 OPTIONS_TYPE = "KSAMPLER_OPTIONS"
@@ -98,7 +98,7 @@ class AGSoft_KSampler_Plus:
                 "audio_vae": ("VAE", {"tooltip": "Optional Audio VAE for decoding the audio latent.\nОпциональный Audio VAE для декодирования аудио-латента."}),
                 "options": (OPTIONS_TYPE, {"tooltip": "Overrides from options_single/options_dual/options_lora. Dict = single override; LIST = whole series in ONE queue run (images batched). LoRA keys patch a model clone per series item.\nПереопределения от options_single/options_dual/options_lora. Словарь = одно переопределение; СПИСОК = вся серия за один прогон (картинки батчем). LoRA-ключи патчат клон модели на каждый элемент серии."}),
                 "decode_mode": (["tiled", "standard", "off"], {
-                    "default": "tiled",
+                    "default": "standard",
                     "tooltip": (
                         "How the built-in VAE decodes latents: tiled = VAE Decode (Tiled) logic (low VRAM, big "
                         "images/video), standard = plain decode (faster, more VRAM), off = no decode.\n"
