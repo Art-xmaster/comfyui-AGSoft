@@ -1,21 +1,26 @@
 /*
-==============================================================================
 AGSoft_Minimax_H3_Latent_Upscaler.js
-==============================================================================
-Расширение: автоскрытие неиспользуемых виджетов размера по режиму (pattern AGSoft).
----
-Extension: auto-hides unused size widgets per mode (AGSoft pattern).
+Расширение: автоскрытие неиспользуемых виджетов размера по режиму для обеих
+нод апскейлера (pattern AGSoft).
+Extension: auto-hides unused size widgets per mode for both upscaler nodes
+(AGSoft pattern).
 Автор / Author: AGSoft
-Дата / Date: 19.10.2026
-==============================================================================
+Дата / Date: 03.11.2026
 */
 import { app } from "../../../scripts/app.js";
 
-console.log("[AGSoft Minimax H3 Latent Upscaler] JS extension loaded");
+console.log("[AGSoft Minimax H3 Latent Upscaler] JS extension loaded v11.03");
 
 // Скрытые виджеты выкинуты из карты попаданий, линки встают точно в видимые
 // Hidden widgets are removed from the hit map so links land on visible ones
 const Y_OFF = -9999;
+
+// Обе ноды файла имеют одинаковый набор виджетов размера
+// Both nodes of the file share the same size widget set
+const TARGET_CLASSES = [
+    "AGSoftMinimaxH3LatentUpscaler",
+    "AGSoftMinimaxH3LatentUpscalerPlus",
+];
 
 function getWidget(node, name) {
     if (!node || !node.widgets) return null;
@@ -98,7 +103,7 @@ app.registerExtension({
     name: "AGSoft.MinimaxH3LatentUpscaler",
     async nodeCreated(node) {
         try {
-            if (!node || node.comfyClass !== "AGSoftMinimaxH3LatentUpscaler") return;
+            if (!node || TARGET_CLASSES.indexOf(node.comfyClass) === -1) return;
             updateWidgets(node);
             // Хук виджета режима / Hook the mode widget
             const modeW = getWidget(node, "mode");
@@ -124,7 +129,7 @@ app.registerExtension({
             };
             setTimeout(() => updateWidgets(node), 0);
         } catch (e) {
-            console.warn("[AGSoft Minimax H3 Latent Upscaler] nodeCreated skipped:", e);
+            console.warn("[AGSoft Minimax H3 Latent Upscaler] nodeCreated skipped: ", e);
         }
     },
 });
