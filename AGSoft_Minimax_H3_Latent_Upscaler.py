@@ -2,52 +2,76 @@
 ==============================================================================
 AGSoft_Minimax_H3_Latent_Upscaler.py
 ==============================================================================
-Нода: 🎬🧊AGSoft Minimax H3 Latent Upscaler
+Ноды / Nodes:
+🎬🧊AGSoft Minimax H3 Latent Upscaler — обученный пространственный апскейл
+латентов MiniMax H3 (24 канала, 4D/5D) напрямую в latent-пространстве.
+🎬🧊AGSoft Minimax H3 Latent Upscaler Plus — входной латент проходит обученный
+апскейлер, затем refine-семплирование (логика 🧩KSampler Plus) и встроенный
+декод VAE в одной ноде.
 Описание / Description:
 Обученный пространственный апскейл латентов MiniMax H3 (24 канала, 4D/5D)
 напрямую в latent-пространстве, без дорогого VAE decode/encode.
 Вход умный: обычный видеолатент или совместный AV-латент (NestedTensor
 [video, audio]) — совместная форма разделяется автоматически, апскейлится
 только видеочасть, аудиочасть проходит сквозь ноду без изменений.
+Версия Plus повторяет цепочку «апскейлер между двумя семплерами»: входной
+латент апскейлится обученной сетью, затем уточняется семплером за несколько
+шагов (refine) и декодируется встроенным VAE; кэш по ноде хранит фазу
+апскейла и фазу семплирования отдельно, поэтому смена виджетов декода
+только передекодирует, а смена виджетов семплера не перезапускает апскейл.
 ---
 Learned spatial upscaling of MiniMax H3 (24-channel, 4D/5D) latents directly
 in latent space, bypassing costly VAE decode/encode.
 Smart input: plain video latent or native joint AV latent (NestedTensor
 [video, audio]) — the joint form is split automatically, only the video
 member is upscaled while the audio member passes through untouched.
+The Plus version repeats the "upscaler between two samplers" chain: the input
+latent is upscaled by the learned network, then refined by the sampler in a
+few steps and decoded by the built-in VAE; the per-node cache keeps the
+upscale phase and the sampling phase separate, so changing decode widgets
+re-decodes only, and changing sampler widgets does not re-run the upscale.
 Возможности / Features:
 ⚡ Умный вход: plain video latent или joint AV latent с авторазделением
-   Smart input: plain video latent or joint AV latent with auto-split
-⚡ Два выхода: video_latent и собранный обратно video_audio_latent
-   (заменяет отдельные ноды Separate AV Latent и Concat AV Latent)
-   Two outputs: video_latent and re-joined video_audio_latent
-   (replaces the Separate AV Latent and Concat AV Latent nodes)
+Smart input: plain video latent or joint AV latent with auto-split
+⚡ База: выходы video_latent и собранный обратно video_audio_latent
+Base outputs: video_latent and re-joined video_audio_latent
+⚡ Plus: конвейер апскейл -> refine-семплирование -> декод VAE и аудио
+Plus: pipeline upscale -> refine sampling -> VAE and audio decode
 ⚡ Три режима размера: множитель, мегапиксели, целевые размеры
-   Three sizing modes: scale by multiplier, megapixels, target dimensions
+Three sizing modes: scale by multiplier, megapixels, target dimensions
 ⚡ Двухосевое выравнивание по пиксельной сетке с сохранением пропорций
-   Dual-axis pixel-grid alignment with optional aspect-ratio lock
+Dual-axis pixel-grid alignment with optional aspect-ratio lock
 ⚡ fp32/fp16/bf16, кэш моделей по (checkpoint, device, precision), offload на CPU
-   fp32/fp16/bf16, model cache per (checkpoint, device, precision), CPU offload
+fp32/fp16/bf16, model cache per (checkpoint, device, precision), CPU offload
 ⚡ Автоопределение архитектуры чекпоинта (каналы, блоки, temporal-свёртки)
-   Auto-detects checkpoint architecture (channels, blocks, temporal convs)
+Auto-detects checkpoint architecture (channels, blocks, temporal convs)
+⚡ Кэш фаз по ноде: декод-виджеты не пересемплируют, семплер-виджеты не
+перезапускают апскейл / Per-node phase cache: decode widgets do not
+re-sample, sampler widgets do not re-run the upscale
 Автор / Author: AGSoft
-Дата / Date: 21.10.2026
+Дата / Date: 03.11.2026
 ==============================================================================
 """
 import os
 import re
 import math
+import time
 import logging
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import folder_paths
+
 import comfy.utils
+import comfy.samplers
+import comfy.sample
+import comfy.model_management
+import folder_paths
+from nodes import common_ksampler
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# print("[AGSoft Minimax H3 Latent Upscaler] v10.21 loaded (smart AV input, video_latent + video_audio_latent outputs)")
+# print("[AGSoft Minimax H3 Latent Upscaler] v11.03 loaded (Plus: upscale -> refine sampling -> decode, widget order fixed)")
 
 # Регистрация папки моделей / Model folder registration
 _LATENT_UPSCALE_FOLDER = "latent_upscale_models"
@@ -61,12 +85,32 @@ if _LATENT_UPSCALE_FOLDER not in folder_paths.folder_names_and_paths:
 # Spatial compression of the H3 VAE (16x): 1280x704 px -> 80x44 latent
 VAE_DOWNSAMPLE = 16
 H3_VIDEO_CHANNELS = 24
-
 _PRECISION_DTYPES = {"fp32": torch.float32, "fp16": torch.float16, "bf16": torch.bfloat16}
+
+LOG_PREFIX = "[AGSoft Minimax H3 Latent Upscaler]"
+# Плейсхолдер пустых картинок: чётный размер, чтобы видео-кодеры не падали.
+# Empty-image placeholder: even size so video encoders do not fail.
+PLACEHOLDER_SIZE = 64
+DEFAULT_AUDIO_SAMPLE_RATE = 32000
+# Кэш фазы апскейла по unique_id: смена виджетов семплера/декода не
+# перезапускает обученную сеть, апскейленный латент берётся из кэша.
+# Upscale-phase cache per unique_id: sampler/decode widget changes do not
+# re-run the learned network, the upscaled latent is taken from the cache.
+_UPSCALE_CACHE = {}
+# Кэш фазы семплирования по unique_id: смена виджетов декода не
+# пересемплирует, а только передекодирует.
+# Sampling-phase cache per unique_id: a re-run with changed decode widgets
+# re-decodes only, without re-sampling.
+_SAMPLE_CACHE = {}
+_CACHE_LIMIT = 8
+
+_T = lambda en, ru: en + "\n---\n" + ru
+
 
 def _alignment_grid(align):
     # Сетка пикселей, совместимая с align и с VAE H3 / Pixel grid compatible with align and the H3 VAE
     return math.lcm(max(1, int(align)), VAE_DOWNSAMPLE)
+
 
 def _aligned_pixel_size(w_target, h_target, w_in, h_in, align, keep_proportion):
     # Финальные пиксельные размеры на двухосевой сетке, безопасной для VAE H3
@@ -76,7 +120,8 @@ def _aligned_pixel_size(w_target, h_target, w_in, h_in, align, keep_proportion):
     h_target = max(float(grid), float(h_target))
     if not keep_proportion:
         # Независимое округление осей / Independent rounding of both axes
-        return (max(grid, int(round(w_target / grid)) * grid), max(grid, int(round(h_target / grid)) * grid))
+        return (max(grid, int(round(w_target / grid)) * grid),
+                max(grid, int(round(h_target / grid)) * grid))
     aspect = float(w_in) / float(h_in)
     ideal_h = w_target / aspect
     w_center = max(1, int(round(w_target / grid)))
@@ -88,17 +133,19 @@ def _aligned_pixel_size(w_target, h_target, w_in, h_in, align, keep_proportion):
             height = h_units * grid
             ratio_error = abs(math.log((width / height) / aspect))
             size_error = abs(width / w_target - 1.0) + abs(height / ideal_h - 1.0)
-            score = (ratio_error * 4.0 + size_error, ratio_error, size_error, abs(width - w_target) + abs(height - ideal_h))
+            score = (ratio_error * 4.0 + size_error, ratio_error, size_error,
+                     abs(width - w_target) + abs(height - ideal_h))
             if best is None or score < best[0]:
                 best = (score, width, height)
     return best[1], best[2]
+
 
 # Статистики нормализации латентов H3 (24 канала, из тренировочного кода)
 # H3 latent normalization stats (24 channels, from training code)
 LATENTS_MEAN = [
     0.858090341091156, -0.9606591463088989, 1.0661640167236328, -0.5090325474739075,
     -0.2727581858634949, -1.3675414323806763, -0.2553254961967468, -0.26907554268836975,
-    -0.5376840829849243, -0.0464097298681736, 0.6657370328903198, 0.19690127670764923,
+    -0.5376840829849243, -0.046409729681736, 0.6657370328903198, 0.19690127670764923,
     -0.5460608005523682, -0.4035342037677765, -0.23683024942874908, 0.25928452610969543,
     -0.30133944749832153, 0.211341992020607, -1.1206848621368408, 0.3581933379173279,
     -0.04225143790245056, 0.2604829967021942, 0.22864092886447906, 0.7056031823158264,
@@ -112,10 +159,12 @@ LATENTS_STD = [
     3.276226282119751, 3.1627357006073, 2.2816812992095947, 2.6127843856811523,
 ]
 
+
 def _make_norm_tensors(device, dtype):
     mean = torch.tensor(LATENTS_MEAN, dtype=dtype, device=device).view(1, -1, 1, 1, 1)
     std = torch.tensor(LATENTS_STD, dtype=dtype, device=device).view(1, -1, 1, 1, 1)
     return mean, std
+
 
 # ==========================================
 # Совместные AV-латенты (NestedTensor) / Joint AV latents (NestedTensor)
@@ -133,12 +182,15 @@ def _is_nested(value):
         return False
     return bool(value.is_nested)
 
+
 def _nested_members(value):
     members = list(value.unbind())
     for m in members:
         if not torch.is_tensor(m):
-            raise TypeError("Joint AV latent members must be torch.Tensor / члены совместного AV-латента должны быть torch.Tensor")
+            raise TypeError("Joint AV latent members must be torch.Tensor / "
+                            "члены совместного AV-латента должны быть torch.Tensor")
     return members
+
 
 def _wrap_nested(video, audio, template=None):
     # Сборка совместного AV-латента [video, audio] / Rebuild joint AV latent [video, audio]
@@ -151,29 +203,38 @@ def _wrap_nested(video, audio, template=None):
                 return type(template)([video, audio])
             except Exception:
                 pass
-    raise ValueError("This ComfyUI build lacks NestedTensor support for joint AV latents / эта сборка ComfyUI не поддерживает NestedTensor для совместных AV-латентов")
+        raise ValueError("This ComfyUI build lacks NestedTensor support for joint AV latents / "
+                         "эта сборка ComfyUI не поддерживает NestedTensor для совместных AV-латентов")
+
 
 def _split_input_latent(latent):
     # Умный вход: joint AV -> (video, audio, template), plain -> (video, None, None)
     # Smart input: joint AV -> (video, audio, template), plain -> (video, None, None)
     if not isinstance(latent, dict) or "samples" not in latent:
-        raise ValueError("Input latent must be a LATENT dictionary with 'samples' / входной latent должен быть словарём LATENT с ключом 'samples'")
+        raise ValueError("Input latent must be a LATENT dictionary with 'samples' / "
+                         "входной latent должен быть словарём LATENT с ключом 'samples'")
     samples = latent["samples"]
     if _is_nested(samples):
         members = _nested_members(samples)
         if len(members) != 2:
-            raise ValueError(f"Joint AV latent must contain exactly [video, audio] members, got {len(members)} / совместный AV-латент должен содержать ровно [video, audio], получено {len(members)}")
+            raise ValueError(f"Joint AV latent must contain exactly [video, audio] members, got {len(members)} / "
+                             f"совместный AV-латент должен содержать ровно [video, audio], получено {len(members)}")
         return members[0], members[1], samples
     if torch.is_tensor(samples):
         return samples, None, None
-    raise TypeError(f"Unsupported latent samples type: {type(samples).__name__} / неподдерживаемый тип samples: {type(samples).__name__}")
+    raise TypeError(f"Unsupported latent samples type: {type(samples).__name__} / "
+                    f"неподдерживаемый тип samples: {type(samples).__name__}")
+
 
 def _validate_video(video):
     if not torch.is_tensor(video) or not video.is_floating_point():
-        raise TypeError("MiniMax H3 video latent must be a floating-point torch.Tensor / видеолатент MiniMax H3 должен быть float-тензором")
+        raise TypeError("MiniMax H3 video latent must be a floating-point torch.Tensor / "
+                        "видеолатент MiniMax H3 должен быть float-тензором")
     if video.ndim not in (4, 5) or video.shape[1] != H3_VIDEO_CHANNELS:
-        raise ValueError(f"MiniMax H3 video latent must be Bx24xHxW or Bx24xTxHxW, got {tuple(video.shape)} / видеолатент MiniMax H3 должен быть Bx24xHxW или Bx24xTxHxW, получено {tuple(video.shape)}")
+        raise ValueError(f"MiniMax H3 video latent must be Bx24xHxW or Bx24xTxHxW, got {tuple(video.shape)} / "
+                         f"видеолатент MiniMax H3 должен быть Bx24xHxW или Bx24xTxHxW, получено {tuple(video.shape)}")
     return video
+
 
 def _output_linked(prompt, unique_id, slot):
     # Подключён ли выход slot куда-то в графе / Whether output slot is linked anywhere in the graph
@@ -195,16 +256,19 @@ def _output_linked(prompt, unique_id, slot):
                     continue
     return False
 
+
 # ==========================================
 # Компоненты 3D-сети (как в тренировочном коде) / 3D network components (as in training code)
 # ==========================================
 def normalization(channels):
     return nn.GroupNorm(32, channels)
 
+
 def zero_module(module):
     for p in module.parameters():
         p.detach().zero_()
     return module
+
 
 class ResBlockEmb3D(nn.Module):
     # Res-блок с scale-embedding (AdaGN) / Residual block with scale embedding (AdaGN)
@@ -217,7 +281,8 @@ class ResBlockEmb3D(nn.Module):
         self.emb_layers = nn.Sequential(nn.SiLU(), nn.Linear(emb_channels, 2 * self.out_channels))
         self.out_norm = normalization(self.out_channels)
         self.out_layers = nn.Sequential(
-            nn.SiLU(), nn.Dropout(p=dropout), zero_module(nn.Conv3d(self.out_channels, self.out_channels, 3, padding=1)),
+            nn.SiLU(), nn.Dropout(p=dropout),
+            zero_module(nn.Conv3d(self.out_channels, self.out_channels, 3, padding=1)),
         )
         self.skip = nn.Conv3d(channels, self.out_channels, 1) if self.out_channels != channels else nn.Identity()
 
@@ -233,13 +298,15 @@ class ResBlockEmb3D(nn.Module):
         h = self.out_layers(h)
         return self.skip(x) + h
 
+
 class TemporalConv(nn.Module):
     # Depthwise-свёртка по времени (kernel 5) / Depthwise temporal convolution (kernel 5)
     def __init__(self, channels, kernel_size=5):
         super().__init__()
         padding = kernel_size // 2
         self.norm = normalization(channels)
-        self.dwconv = nn.Conv3d(channels, channels, kernel_size=(kernel_size, 1, 1), padding=(padding, 0, 0), groups=channels)
+        self.dwconv = nn.Conv3d(channels, channels, kernel_size=(kernel_size, 1, 1),
+                                padding=(padding, 0, 0), groups=channels)
         self.pwconv = nn.Conv3d(channels, channels, kernel_size=1)
         nn.init.zeros_(self.pwconv.weight)
         nn.init.zeros_(self.pwconv.bias)
@@ -251,10 +318,12 @@ class TemporalConv(nn.Module):
         h = self.pwconv(h)
         return x + h
 
+
 class LatentResizer3D(nn.Module):
     # Чистый 3D-бэкбон: encoder -> trilinear -> decoder, время не трогает
     # Pure 3D backbone: encoder -> trilinear -> decoder, time axis preserved
-    def __init__(self, in_channels=24, in_blocks=12, out_blocks=12, channels=512, dropout=0.1, temporal_every=2, temporal_kernel=5):
+    def __init__(self, in_channels=24, in_blocks=12, out_blocks=12, channels=512, dropout=0.1,
+                 temporal_every=2, temporal_kernel=5):
         super().__init__()
         self.conv_in = nn.Conv3d(in_channels, channels, 3, padding=1)
         embed_dim = 64
@@ -286,14 +355,17 @@ class LatentResizer3D(nn.Module):
         x = F.silu(x)
         return self.conv_out(x)
 
+
 # ==========================================
 # Загрузка моделей / Model loading
 # ==========================================
 MODEL_CACHE = {}
 
+
 def _detect_arch(sd):
     # Автоопределение конфигурации по ключам state_dict / Auto-detect config from state_dict keys
-    cfg = {"in_channels": 24, "in_blocks": 12, "out_blocks": 12, "channels": 512, "dropout": 0.1, "temporal_every": 2, "temporal_kernel": 5}
+    cfg = {"in_channels": 24, "in_blocks": 12, "out_blocks": 12, "channels": 512, "dropout": 0.1,
+           "temporal_every": 2, "temporal_kernel": 5}
     if "conv_in.weight" in sd:
         cfg["in_channels"] = sd["conv_in.weight"].shape[1]
         cfg["channels"] = sd["conv_in.weight"].shape[0]
@@ -324,6 +396,7 @@ def _detect_arch(sd):
         cfg["temporal_every"] = 0
     return cfg
 
+
 def _load_sd(path, dtype):
     # Чтение чекпоинта через core-утилиту (без pickle-рисков) + снятие префикса
     # Checkpoint read via core utility (no pickle risk) + prefix stripping
@@ -336,6 +409,7 @@ def _load_sd(path, dtype):
     for k, v in sd.items():
         out[k] = v.to(dtype=dtype) if (torch.is_tensor(v) and v.is_floating_point() and v.dtype != dtype) else v
     return out
+
 
 def load_model(name, device, precision):
     key = f"{name}::{device}::{precision}"
@@ -362,19 +436,26 @@ def load_model(name, device, precision):
     model.to(device)
     del sd
     MODEL_CACHE[key] = model
-    logger.info("[AGSoft MinimaxH3] loaded %s | params=%s | temporal=%s | precision=%s | device=%s", name, f"{sum(p.numel() for p in model.parameters()):,}", "on" if cfg["temporal_every"] > 0 else "off", precision, device)
+    logger.info("[AGSoft MinimaxH3] loaded %s | params=%s | temporal=%s | precision=%s | device=%s",
+                name, f"{sum(p.numel() for p in model.parameters()):,}",
+                "on" if cfg["temporal_every"] > 0 else "off", precision, device)
     return model
 
-def upscale_latent_exact(video, model_name, target_h, target_w, device, precision, offload_after_upscale=False, scale_embedding=None):
+
+def upscale_latent_exact(video, model_name, target_h, target_w, device, precision,
+                         offload_after_upscale=False, scale_embedding=None):
     # Обученный пространственный ресайз до точных latent H/W при сохранении B/C/T
     # Learned spatial resize to exact latent H/W while preserving B/C/T
     if not isinstance(video, torch.Tensor) or not video.is_floating_point():
-        raise TypeError("Input latent must be a floating-point torch.Tensor / входной latent должен быть float-тензором")
+        raise TypeError("Input latent must be a floating-point torch.Tensor / "
+                        "входной latent должен быть float-тензором")
     if video.ndim != 5 or video.shape[1] != H3_VIDEO_CHANNELS:
-        raise ValueError(f"MiniMax H3 latent must be Bx24xTxHxW, got {tuple(video.shape)} / латент MiniMax H3 должен быть Bx24xTxHxW, получено {tuple(video.shape)}")
+        raise ValueError(f"MiniMax H3 latent must be Bx24xTxHxW, got {tuple(video.shape)} / "
+                         f"латент MiniMax H3 должен быть Bx24xTxHxW, получено {tuple(video.shape)}")
     src_h, src_w = int(video.shape[-2]), int(video.shape[-1])
     if target_h < src_h or target_w < src_w:
-        raise ValueError("Only upscaling is supported: target must not shrink any spatial axis / поддерживается только апскейл: целевой размер не может быть меньше исходного")
+        raise ValueError("Only upscaling is supported: target must not shrink any spatial axis / "
+                         "поддерживается только апскейл: целевой размер не может быть меньше исходного")
     if target_h == src_h and target_w == src_w:
         return video.clone()
     dev = torch.device(device if (device == "cpu" or torch.cuda.is_available()) else "cpu")
@@ -391,7 +472,8 @@ def upscale_latent_exact(video, model_name, target_h, target_w, device, precisio
     del work
     expected = (int(video.shape[0]), H3_VIDEO_CHANNELS, temporal, target_h, target_w)
     if tuple(out.shape) != expected:
-        raise RuntimeError(f"Upscaler returned shape {tuple(out.shape)}, expected {expected} / апскейлер вернул форму {tuple(out.shape)}, ожидалась {expected}")
+        raise RuntimeError(f"Upscaler returned shape {tuple(out.shape)}, expected {expected} / "
+                           f"апскейлер вернул форму {tuple(out.shape)}, ожидалась {expected}")
     if not bool(torch.isfinite(out).all().item()):
         raise RuntimeError("Upscaler returned NaN or Inf values / апскейлер вернул NaN или Inf")
     out = out.to(device="cpu", dtype=video.dtype)
@@ -401,8 +483,54 @@ def upscale_latent_exact(video, model_name, target_h, target_w, device, precisio
         torch.cuda.empty_cache()
     return out
 
+
+def _upscale_video(src, model_name, mode, scale, width, height, megapixels, align,
+                   keep_proportion, device, precision, offload_after_upscale):
+    # Расчёт целевого размера и инференс только видеочасти / Target sizing and inference on the video member only
+    was_4d = src.dim() == 4
+    s = src.unsqueeze(2) if was_4d else src  # 4D -> 5D с T=1 / 4D -> 5D with T=1
+    _b, _c, _t, h_in, w_in = s.shape
+    ds = VAE_DOWNSAMPLE
+    # 1. Теоретический целевой размер в пикселях / Theoretical pixel-space target
+    if mode == "scale by multiplier":
+        w_tgt, h_tgt = w_in * ds * scale, h_in * ds * scale
+        eff = float(scale)
+    elif mode == "target dimensions":
+        w_tgt, h_tgt = float(width), float(height)
+        eff = (w_tgt / (w_in * ds) + h_tgt / (h_in * ds)) / 2.0
+    elif mode == "megapixels":
+        target_px = megapixels * 1024 * 1024
+        ar = w_in / h_in
+        h_tgt = (target_px / ar) ** 0.5
+        w_tgt = h_tgt * ar
+        eff = (w_tgt / (w_in * ds) + h_tgt / (h_in * ds)) / 2.0
+    else:
+        raise ValueError(f"Unsupported mode: {mode} / неподдерживаемый режим: {mode}")
+    # 2. Привязка к общей сетке выравнивания / Snap to the common alignment grid
+    w_fin, h_fin = _aligned_pixel_size(w_tgt, h_tgt, w_in, h_in, align, bool(keep_proportion))
+    # 3. Возврат в latent-пространство / Back to latent space
+    w_out = max(1, int(w_fin // ds))
+    h_out = max(1, int(h_fin // ds))
+    if w_out < w_in or h_out < h_in:
+        raise ValueError("This model only supports upscaling: target is smaller than source / "
+                         "модель поддерживает только апскейл: цель меньше источника")
+    if w_out == w_in and h_out == h_in:
+        logger.info("[AGSoft MinimaxH3] target equals source, video latent returned unchanged / "
+                    "цель равна источнику, видеолатент возвращён без изменений")
+        out = s.clone()
+    else:
+        logger.info("[AGSoft MinimaxH3] latent %dx%d -> %dx%d | pixels %dx%d | scale=%.3f",
+                    w_in, h_in, w_out, h_out, w_out * ds, h_out * ds, eff)
+        # 4. Инференс целиком по времени: temporal-свёртки не допускают чанкования
+        # 4. Full-sequence inference: temporal convs make chunking non-equivalent
+        out = upscale_latent_exact(s, model_name, h_out, w_out, device, precision, offload_after_upscale, eff)
+    if was_4d:
+        out = out.squeeze(2)
+    return out
+
+
 # ==========================================
-# Нода ComfyUI / ComfyUI node
+# Нода ComfyUI (база) / ComfyUI node (base)
 # ==========================================
 class AGSoftMinimaxH3LatentUpscaler:
     CATEGORY = "AGSoft/MiniMaxH3"
@@ -411,29 +539,27 @@ class AGSoftMinimaxH3LatentUpscaler:
     RETURN_TYPES = ("LATENT", "LATENT")
     RETURN_NAMES = ("video_latent", "video_audio_latent")
     OUTPUT_TOOLTIPS = (
-        "Upscaled video-only latent; if the input was joint AV, the audio member is dropped here."
-        "\n---\n"
-        "Апскейленный латент только видео; если вход был совместным AV, аудиочасть здесь отброшена."
-        ,
+        "Upscaled video-only latent; if the input was joint AV, the audio member is dropped here.\n"
+        "---\n"
+        "Апскейленный латент только видео; если вход был совместным AV, аудиочасть здесь отброшена.",
         "Joint AV latent: upscaled video re-joined with the original untouched audio member. "
-        "Raises an error if connected while the input had no audio part."
-        "\n---\n"
+        "Raises an error if connected while the input had no audio part.\n"
+        "---\n"
         "Совместный AV-латент: апскейленное видео, собранное обратно с исходной нетронутой аудиочастью. "
-        "Выдаёт ошибку, если выход подключён, а на входе не было аудиочасти."
-        ,
+        "Выдаёт ошибку, если выход подключён, а на входе не было аудиочасти.",
     )
     DESCRIPTION = (
         "Learned spatial upscaling of MiniMax H3 latents (24 ch) without VAE decode/encode. "
         "Smart input accepts a plain video latent or a native joint AV latent (NestedTensor [video, audio]): "
         "the joint form is split automatically, only the video member is upscaled, audio passes through untouched. "
-        "Outputs: video_latent (upscaled video only) and video_audio_latent (upscaled video re-joined with the original audio), "
-        "which replaces the Separate AV Latent / Concat AV Latent node pair."
-        "\n---\n"
+        "Outputs: video_latent (upscaled video only) and video_audio_latent (upscaled video re-joined with the "
+        "original audio), which replaces the Separate AV Latent / Concat AV Latent node pair.\n"
+        "---\n"
         "Обученный пространственный апскейл латентов MiniMax H3 (24 канала) без VAE decode/encode. "
         "Умный вход принимает обычный видеолатент или совместный AV-латент (NestedTensor [video, audio]): "
         "совместная форма разделяется автоматически, апскейлится только видеочасть, аудио проходит без изменений. "
-        "Выходы: video_latent (только апскейленное видео) и video_audio_latent (апскейленное видео, собранное с исходным аудио), "
-        "что заменяет пару нод Separate AV Latent / Concat AV Latent."
+        "Выходы: video_latent (только апскейленное видео) и video_audio_latent (апскейленное видео, собранное с "
+        "исходным аудио), что заменяет пару нод Separate AV Latent / Concat AV Latent."
     )
 
     @classmethod
@@ -445,78 +571,56 @@ class AGSoftMinimaxH3LatentUpscaler:
         if not models:
             models = [" "]  # пустой combo ломает фронтенд / empty combo breaks the frontend
         required = {
-            "latent": ("LATENT", {"tooltip": (
+            "latent": ("LATENT", {"tooltip": _T(
                 "Smart input: plain 24-channel MiniMax H3 video latent (image or video) OR native joint "
                 "audio-video latent (NestedTensor [video, audio]); the joint form is split automatically "
-                "and only the video member is upscaled."
-                "\n---\n"
+                "and only the video member is upscaled.",
                 "Умный вход: обычный видеолатент MiniMax H3 на 24 канала (изображение или видео) ИЛИ совместный "
                 "аудио-видео латент (NestedTensor [video, audio]); совместная форма разделяется автоматически, "
-                "апскейлится только видеочасть."
-            )}),
-            "model_name": (models, {"tooltip": (
+                "апскейлится только видеочасть.")}),
+            "model_name": (models, {"tooltip": _T(
                 "Checkpoint of the learned 3D upscaler from models/latent_upscale_models "
-                "(.safetensors or .pth, architecture auto-detected)."
-                "\n---\n"
+                "(.safetensors or .pth, architecture auto-detected).",
                 "Чекпоинт обученного 3D-апскейлера из models/latent_upscale_models "
-                "(.safetensors или .pth, архитектура определяется автоматически)."
-            )}),
-            "mode": (["scale by multiplier", "target dimensions", "megapixels"], {"default": "scale by multiplier", "tooltip": (
+                "(.safetensors или .pth, архитектура определяется автоматически).")}),
+            "mode": (["scale by multiplier", "target dimensions", "megapixels"],
+                     {"default": "scale by multiplier", "tooltip": _T(
                 "How the target pixel size is computed: source size x scale, exact width/height, "
-                "or total area in megapixels at the source aspect ratio."
-                "\n---\n"
+                "or total area in megapixels at the source aspect ratio.",
                 "Как вычисляется целевой размер в пикселях: размер источника x scale, точные width/height "
-                "или общая площадь в мегапикселях с пропорцией источника."
-            )}),
-            "scale": ("FLOAT", {"default": 2.0, "min": 1.0, "max": 4.0, "step": 0.05, "tooltip": (
-                "Upscale multiplier applied to the source pixel size (mode: scale by multiplier)."
-                "\n---\n"
-                "Множитель апскейла к пиксельному размеру источника (режим: scale by multiplier)."
-            )}),
-            "width": ("INT", {"default": 1280, "min": 64, "max": 4096, "step": 8, "tooltip": (
-                "Target pixel width (mode: target dimensions); snapped to the alignment grid."
-                "\n---\n"
-                "Целевая ширина в пикселях (режим: target dimensions); приводится к сетке выравнивания."
-            )}),
-            "height": ("INT", {"default": 704, "min": 64, "max": 4096, "step": 8, "tooltip": (
-                "Target pixel height (mode: target dimensions); snapped to the alignment grid."
-                "\n---\n"
-                "Целевая высота в пикселях (режим: target dimensions); приводится к сетке выравнивания."
-            )}),
-            "megapixels": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 8.0, "step": 0.1, "tooltip": (
-                "Target frame area in megapixels at the source aspect ratio (1024x1024 = 1 MP, mode: megapixels)."
-                "\n---\n"
-                "Целевая площадь кадра в мегапикселях с пропорцией источника (1024x1024 = 1 МП, режим: megapixels)."
-            )}),
-            "align": ("INT", {"default": 32, "min": 1, "max": 512, "step": 1, "tooltip": (
+                "или общая площадь в мегапикселях с пропорцией источника.")}),
+            "scale": ("FLOAT", {"default": 2.0, "min": 1.0, "max": 4.0, "step": 0.05, "tooltip": _T(
+                "Upscale multiplier applied to the source pixel size (mode: scale by multiplier).",
+                "Множитель апскейла к пиксельному размеру источника (режим: scale by multiplier).")}),
+            "width": ("INT", {"default": 1280, "min": 64, "max": 4096, "step": 8, "tooltip": _T(
+                "Target pixel width (mode: target dimensions); snapped to the alignment grid.",
+                "Целевая ширина в пикселях (режим: target dimensions); приводится к сетке выравнивания.")}),
+            "height": ("INT", {"default": 704, "min": 64, "max": 4096, "step": 8, "tooltip": _T(
+                "Target pixel height (mode: target dimensions); snapped to the alignment grid.",
+                "Целевая высота в пикселях (режим: target dimensions); приводится к сетке выравнивания.")}),
+            "megapixels": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 8.0, "step": 0.1, "tooltip": _T(
+                "Target frame area in megapixels at the source aspect ratio (1024x1024 = 1 MP, mode: megapixels).",
+                "Целевая площадь кадра в мегапикселях с пропорцией источника (1024x1024 = 1 МП, режим: megapixels).")}),
+            "align": ("INT", {"default": 32, "min": 1, "max": 512, "step": 1, "tooltip": _T(
                 "Output pixel grid step: both output axes are rounded to multiples of this value, "
-                "kept compatible with the 16-pixel grid of the H3 VAE."
-                "\n---\n"
+                "kept compatible with the 16-pixel grid of the H3 VAE.",
                 "Шаг пиксельной сетки выхода: обе оси результата округляются до кратных этому значению "
-                "с сохранением совместимости с сеткой 16 пикселей VAE H3."
-            )}),
-            "keep_proportion": ("BOOLEAN", {"default": True, "tooltip": (
+                "с сохранением совместимости с сеткой 16 пикселей VAE H3.")}),
+            "keep_proportion": ("BOOLEAN", {"default": True, "tooltip": _T(
                 "Search nearby grid pairs and pick the one that best preserves the source aspect ratio; "
-                "off rounds width and height to the grid independently."
-                "\n---\n"
+                "off rounds width and height to the grid independently.",
                 "Перебирает соседние пары сетки и выбирает наилучшую по сохранению пропорций источника; "
-                "off округляет ширину и высоту по сетке независимо."
-            )}),
-            "device": (["cuda", "cpu"], {"default": "cuda", "tooltip": (
-                "Compute device for the upscaler network; silently falls back to CPU when CUDA is unavailable."
-                "\n---\n"
-                "Устройство вычислений сети апскейлера; молча откатывается на CPU, если CUDA недоступна."
-            )}),
-            "precision": (["fp32", "fp16", "bf16"], {"default": "fp16", "tooltip": (
-                "Inference precision of the upscaler network; fp16/bf16 roughly halve VRAM usage."
-                "\n---\n"
-                "Точность инференса сети апскейлера; fp16/bf16 примерно вдвое снижают потребление VRAM."
-            )}),
-            "offload_after_upscale": ("BOOLEAN", {"default": False, "tooltip": (
-                "Move the cached network to CPU after the run to free VRAM; the next run pays the transfer back."
-                "\n---\n"
-                "После запуска переносить кэшированную сеть на CPU для освобождения VRAM; следующий запуск платит обратным переносом."
-            )}),
+                "off округляет ширину и высоту по сетке независимо.")}),
+            "device": (["cuda", "cpu"], {"default": "cuda", "tooltip": _T(
+                "Compute device for the upscaler network; silently falls back to CPU when CUDA is unavailable.",
+                "Устройство вычислений сети апскейлера; молча откатывается на CPU, если CUDA недоступна.")}),
+            "precision": (["fp32", "fp16", "bf16"], {"default": "fp16", "tooltip": _T(
+                "Inference precision of the upscaler network; fp16/bf16 roughly halve VRAM usage.",
+                "Точность инференса сети апскейлера; fp16/bf16 примерно вдвое снижают потребление VRAM.")}),
+            "offload_after_upscale": ("BOOLEAN", {"default": False, "tooltip": _T(
+                "Move the cached network to CPU after the run to free VRAM; the next run pays the transfer back.",
+                "После запуска переносить кэшированную сеть на CPU для освобождения VRAM; следующий запуск платит "
+                "обратным переносом.")}),
         }
         hidden = {
             "prompt": "PROMPT",
@@ -532,61 +636,24 @@ class AGSoftMinimaxH3LatentUpscaler:
                 return f"Model not found in {_LATENT_UPSCALE_FOLDER}: {name}"
         return True
 
-    def _upscale_video(self, src, model_name, mode, scale, width, height, megapixels, align, keep_proportion, device, precision, offload_after_upscale):
-        # Расчёт целевого размера и инференс только видеочасти / Target sizing and inference on the video member only
-        was_4d = src.dim() == 4
-        s = src.unsqueeze(2) if was_4d else src  # 4D -> 5D с T=1 / 4D -> 5D with T=1
-        _b, _c, _t, h_in, w_in = s.shape
-        ds = VAE_DOWNSAMPLE
-        # 1. Теоретический целевой размер в пикселях / Theoretical pixel-space target
-        if mode == "scale by multiplier":
-            w_tgt, h_tgt = w_in * ds * scale, h_in * ds * scale
-            eff = float(scale)
-        elif mode == "target dimensions":
-            w_tgt, h_tgt = float(width), float(height)
-            eff = (w_tgt / (w_in * ds) + h_tgt / (h_in * ds)) / 2.0
-        elif mode == "megapixels":
-            target_px = megapixels * 1024 * 1024
-            ar = w_in / h_in
-            h_tgt = (target_px / ar) ** 0.5
-            w_tgt = h_tgt * ar
-            eff = (w_tgt / (w_in * ds) + h_tgt / (h_in * ds)) / 2.0
-        else:
-            raise ValueError(f"Unsupported mode: {mode} / неподдерживаемый режим: {mode}")
-        # 2. Привязка к общей сетке выравнивания / Snap to the common alignment grid
-        w_fin, h_fin = _aligned_pixel_size(w_tgt, h_tgt, w_in, h_in, align, bool(keep_proportion))
-        # 3. Возврат в latent-пространство / Back to latent space
-        w_out = max(1, int(w_fin // ds))
-        h_out = max(1, int(h_fin // ds))
-        if w_out < w_in or h_out < h_in:
-            raise ValueError("This model only supports upscaling: target is smaller than source / модель поддерживает только апскейл: цель меньше источника")
-        if w_out == w_in and h_out == h_in:
-            logger.info("[AGSoft MinimaxH3] target equals source, video latent returned unchanged / цель равна источнику, видеолатент возвращён без изменений")
-            out = s.clone()
-        else:
-            logger.info("[AGSoft MinimaxH3] latent %dx%d -> %dx%d | pixels %dx%d | scale=%.3f", w_in, h_in, w_out, h_out, w_out * ds, h_out * ds, eff)
-            # 4. Инференс целиком по времени: temporal-свёртки не допускают чанкования
-            # 4. Full-sequence inference: temporal convs make chunking non-equivalent
-            out = upscale_latent_exact(s, model_name, h_out, w_out, device, precision, offload_after_upscale, eff)
-        if was_4d:
-            out = out.squeeze(2)
-        return out
-
-    def upscale(self, latent, model_name, mode, scale, width, height, megapixels, align, keep_proportion, device, precision, offload_after_upscale, prompt=None, unique_id=None):
+    def upscale(self, latent, model_name, mode, scale, width, height, megapixels, align, keep_proportion,
+                device, precision, offload_after_upscale, prompt=None, unique_id=None):
         if not model_name or model_name == " ":
-            raise ValueError(f"Place .safetensors/.pth checkpoints into ComfyUI/models/{_LATENT_UPSCALE_FOLDER}/ / положите чекпоинты .safetensors/.pth в ComfyUI/models/{_LATENT_UPSCALE_FOLDER}/")
+            raise ValueError(f"Place .safetensors/.pth checkpoints into ComfyUI/models/{_LATENT_UPSCALE_FOLDER}/ / "
+                             f"положите чекпоинты .safetensors/.pth в ComfyUI/models/{_LATENT_UPSCALE_FOLDER}/")
         video_in, audio_in, template = _split_input_latent(latent)
         video_in = _validate_video(video_in)
         orig_dtype = video_in.dtype
-        video_out = self._upscale_video(video_in, model_name, mode, scale, width, height, megapixels, align, keep_proportion, device, precision, offload_after_upscale).to(dtype=orig_dtype)
+        video_out = _upscale_video(video_in, model_name, mode, scale, width, height, megapixels, align,
+                                   keep_proportion, device, precision, offload_after_upscale).to(dtype=orig_dtype)
         video_latent = {"samples": video_out}
         if audio_in is None:
             # Аудиочасти нет: второй выход допустим только неподключённым
             # No audio member: the second output is only valid when unconnected
             if _output_linked(prompt, unique_id, 1):
                 raise ValueError(
-                    "video_audio_latent output is connected, but the input latent has no audio part (plain video latent). "
-                    "Feed a joint AV latent or use the video_latent output. / "
+                    "video_audio_latent output is connected, but the input latent has no audio part (plain video "
+                    "latent). Feed a joint AV latent or use the video_latent output. / "
                     "Выход video_audio_latent подключён, но во входном латенте нет аудиочасти (обычный видеолатент). "
                     "Подайте совместный AV-латент или используйте выход video_latent."
                 )
@@ -595,9 +662,599 @@ class AGSoftMinimaxH3LatentUpscaler:
         av_latent = {"samples": _wrap_nested(video_out, audio, template)}
         return (video_latent, av_latent)
 
+
+# ==========================================
+# Нода ComfyUI (Plus) / ComfyUI node (Plus)
+# ==========================================
+class AGSoftMinimaxH3LatentUpscalerPlus:
+    CATEGORY = "AGSoft/MiniMaxH3"
+    FUNCTION = "sample"
+    WEB_DIRECTORY = "./web"
+    RETURN_TYPES = ("LATENT", "LATENT", "IMAGE", "AUDIO")
+    RETURN_NAMES = ("video_latent", "video_audio_latent", "images", "audio")
+    OUTPUT_TOOLTIPS = (
+        "Refined video-only latent after upscale + refine sampling.\n"
+        "---\n"
+        "Уточнённый латент только видео после апскейла и refine-семплирования.",
+        "Refined joint AV latent (upscaled video + audio after sampling); None when the input had no "
+        "audio part. Raises an error if connected while the input had no audio.\n"
+        "---\n"
+        "Уточнённый совместный AV-латент (апскейленное видео + аудио после семплирования); None, если на "
+        "входе не было аудиочасти. Выдаёт ошибку, если выход подключён, а на входе не было аудио.",
+        "Decoded images/video of the refined latent.\n"
+        "---\n"
+        "Декодированные изображения/видео уточнённого латента.",
+        "The decoded audio of the refined latent.\n"
+        "---\n"
+        "Декодированное аудио уточнённого латента.",
+    )
+    DESCRIPTION = (
+        "🎬 AGSoft Minimax H3 Latent Upscaler Plus.\n"
+        "The input latent (plain video or joint AV) first passes the LEARNED 3D upscaler, then the upscaled "
+        "latent is refined by the built-in sampler (few steps, denoise widget) and decoded by the built-in VAE "
+        "(tiled/standard/off) with audio decode — the whole 'upscaler between two samplers' chain in one node. "
+        "Per-node phase cache: decode widget changes re-decode only, sampler widget changes do not re-run the "
+        "learned upscale.\n"
+        "---\n"
+        "🎬🧊 AGSoft Minimax H3 Latent Upscaler Plus.\n"
+        "Входной латент (обычный видео или совместный AV) сначала проходит ОБУЧЕННЫЙ 3D-апскейлер, затем "
+        "апскейленный латент уточняется встроенным семплером (несколько шагов, виджет denoise) и декодируется "
+        "встроенным VAE (tiled/standard/off) с декодом аудио — вся цепочка «апскейлер между двумя семплерами» "
+        "в одной ноде. Кэш фаз по ноде: смена виджетов декода только передекодирует, смена виджетов семплера "
+        "не перезапускает обученный апскейл."
+    )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        try:
+            models = list(folder_paths.get_filename_list(_LATENT_UPSCALE_FOLDER))
+        except Exception:
+            models = []
+        if not models:
+            models = [" "]  # пустой combo ломает фронтенд / empty combo breaks the frontend
+        required = {
+            # Блок апскейлера как в базовой ноде / Upscaler block as in the base node
+            "latent": ("LATENT", {"tooltip": _T(
+                "Smart input: plain 24-channel MiniMax H3 video latent (image or video) OR native joint "
+                "audio-video latent (NestedTensor [video, audio]); it is upscaled by the learned network "
+                "before refine sampling.",
+                "Умный вход: обычный видеолатент MiniMax H3 на 24 канала (изображение или видео) ИЛИ совместный "
+                "аудио-видео латент (NestedTensor [video, audio]); апскейлится обученной сетью перед "
+                "refine-семплированием.")}),
+            "model_name": (models, {"tooltip": _T(
+                "Checkpoint of the learned 3D upscaler from models/latent_upscale_models "
+                "(.safetensors or .pth, architecture auto-detected).",
+                "Чекпоинт обученного 3D-апскейлера из models/latent_upscale_models "
+                "(.safetensors или .pth, архитектура определяется автоматически).")}),
+            "mode": (["scale by multiplier", "target dimensions", "megapixels"],
+                     {"default": "scale by multiplier", "tooltip": _T(
+                "How the target pixel size is computed: source size x scale, exact width/height, "
+                "or total area in megapixels at the source aspect ratio.",
+                "Как вычисляется целевой размер в пикселях: размер источника x scale, точные width/height "
+                "или общая площадь в мегапикселях с пропорцией источника.")}),
+            "scale": ("FLOAT", {"default": 2.0, "min": 1.0, "max": 4.0, "step": 0.05, "tooltip": _T(
+                "Upscale multiplier applied to the source pixel size (mode: scale by multiplier).",
+                "Множитель апскейла к пиксельному размеру источника (режим: scale by multiplier).")}),
+            "width": ("INT", {"default": 1280, "min": 64, "max": 4096, "step": 8, "tooltip": _T(
+                "Target pixel width (mode: target dimensions); snapped to the alignment grid.",
+                "Целевая ширина в пикселях (режим: target dimensions); приводится к сетке выравнивания.")}),
+            "height": ("INT", {"default": 704, "min": 64, "max": 4096, "step": 8, "tooltip": _T(
+                "Target pixel height (mode: target dimensions); snapped to the alignment grid.",
+                "Целевая высота в пикселях (режим: target dimensions); приводится к сетке выравнивания.")}),
+            "megapixels": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 8.0, "step": 0.1, "tooltip": _T(
+                "Target frame area in megapixels at the source aspect ratio (1024x1024 = 1 MP, mode: megapixels).",
+                "Целевая площадь кадра в мегапикселях с пропорцией источника (1024x1024 = 1 МП, режим: megapixels).")}),
+            "align": ("INT", {"default": 32, "min": 1, "max": 512, "step": 1, "tooltip": _T(
+                "Output pixel grid step: both output axes are rounded to multiples of this value, "
+                "kept compatible with the 16-pixel grid of the H3 VAE.",
+                "Шаг пиксельной сетки выхода: обе оси результата округляются до кратных этому значению "
+                "с сохранением совместимости с сеткой 16 пикселей VAE H3.")}),
+            "keep_proportion": ("BOOLEAN", {"default": True, "tooltip": _T(
+                "Search nearby grid pairs and pick the one that best preserves the source aspect ratio; "
+                "off rounds width and height to the grid independently.",
+                "Перебирает соседние пары сетки и выбирает наилучшую по сохранению пропорций источника; "
+                "off округляет ширину и высоту по сетке независимо.")}),
+            "device": (["cuda", "cpu"], {"default": "cuda", "tooltip": _T(
+                "Compute device for the upscaler network; silently falls back to CPU when CUDA is unavailable.",
+                "Устройство вычислений сети апскейлера; молча откатывается на CPU, если CUDA недоступна.")}),
+            "precision": (["fp32", "fp16", "bf16"], {"default": "fp16", "tooltip": _T(
+                "Inference precision of the upscaler network; fp16/bf16 roughly halve VRAM usage.",
+                "Точность инференса сети апскейлера; fp16/bf16 примерно вдвое снижают потребление VRAM.")}),
+            "offload_after_upscale": ("BOOLEAN", {"default": False, "tooltip": _T(
+                "Move the cached network to CPU after the run to free VRAM; the next run pays the transfer back.",
+                "После запуска переносить кэшированную сеть на CPU для освобождения VRAM; следующий запуск платит "
+                "обратным переносом.")}),
+            # Блок семплера как в KSampler Plus / Sampler block as in KSampler Plus
+            "model": ("MODEL", {"tooltip": _T(
+                "The model used for refine sampling of the upscaled latent.",
+                "Модель для refine-семплирования апскейленного латента.")}),
+            "positive": ("CONDITIONING", {"tooltip": _T(
+                "The conditioning describing the attributes you want to include.",
+                "Условие с атрибутами, которые нужно включить.")}),
+            "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff,
+                             "control_after_generate": True, "tooltip": _T(
+                "The random seed used for creating the refine noise.",
+                "Сид для генерации шума уточнения.")}),
+            "steps": ("INT", {"default": 4, "min": 1, "max": 10000, "tooltip": _T(
+                "Refine steps count (3-5 is usually enough), unless sigmas provide their own.",
+                "Число шагов уточнения (обычно достаточно 3-5), если сигмы не задали свои.")}),
+            "cfg": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 100.0, "step": 0.1, "round": 0.01, "tooltip": _T(
+                "CFG scale. Usually 1.0 for H3.",
+                "Масштаб CFG. Обычно 1.0 для H3.")}),
+            "sampler_name": (comfy.samplers.KSampler.SAMPLERS, {"tooltip": _T(
+                "The algorithm used when refine sampling.",
+                "Алгоритм семплирования уточнения.")}),
+            "scheduler": (comfy.samplers.KSampler.SCHEDULERS, {"tooltip": _T(
+                "The scheduler controls how noise is gradually removed.",
+                "Планировщик определяет, как удаляется шум.")}),
+        }
+        optional = {
+            "negative": ("CONDITIONING", {"tooltip": _T(
+                "Optional negative conditioning. Empty conditioning is created if not connected.",
+                "Опциональный негатив. Если не подключён — пустой конд.")}),
+            "sigmas": ("SIGMAS", {"tooltip": _T(
+                "Optional custom sigmas. If connected, steps/scheduler are ignored.",
+                "Опциональные сигмы. Если подключены, steps/scheduler игнорируются.")}),
+            "denoise": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": _T(
+                "Refine denoise amount (used only when sigmas are NOT connected); low values keep the "
+                "upscaled content, high values re-generate more.",
+                "Степень денойзинга уточнения (только если сигмы НЕ подключены); низкие значения сохраняют "
+                "апскейленное содержимое, высокие генерируют заново.")}),
+            "vae": ("VAE", {"tooltip": _T(
+                "Optional VAE: decodes the refined latent into images right inside this node (tiled or standard).",
+                "Опциональный VAE: декодирует уточнённый латент в картинки прямо внутри ноды (tiled или standard).")}),
+            "audio_vae": ("VAE", {"tooltip": _T(
+                "Optional Audio VAE for decoding the audio latent.",
+                "Опциональный Audio VAE для декодирования аудио-латента.")}),
+            "decode_mode": (["tiled", "standard", "off"], {"default": "standard", "tooltip": _T(
+                "How the built-in VAE decodes latents: tiled = VAE Decode (Tiled) logic (low VRAM, big "
+                "images/video), standard = plain decode (faster, more VRAM), off = no decode.",
+                "Как встроенный VAE декодирует латенты: tiled = логика VAE Decode (Tiled) (мало VRAM, большие "
+                "картинки/видео), standard = обычный декод (быстрее, больше VRAM), off = без декода.")}),
+            "tile_size": ("INT", {"default": 512, "min": 64, "max": 4096, "step": 32, "tooltip": _T(
+                "Tiled decode: tile size in pixels (like native VAE Decode (Tiled)).",
+                "Плиточный декод: размер плитки в пикселях (как в нативной VAE Decode (Tiled)).")}),
+            "overlap": ("INT", {"default": 64, "min": 0, "max": 4096, "step": 32, "tooltip": _T(
+                "Tiled decode: overlap between tiles in pixels; auto-clamped to tile_size / 4.",
+                "Плиточный декод: перекрытие плиток в пикселях; авто-кламп до tile_size / 4.")}),
+            "temporal_size": ("INT", {"default": 64, "min": 8, "max": 4096, "step": 4, "tooltip": _T(
+                "Only used for video VAEs: amount of frames to decode at a time.",
+                "Только для видео-VAE: сколько кадров декодировать за один проход.")}),
+            "temporal_overlap": ("INT", {"default": 8, "min": 4, "max": 4096, "step": 4, "tooltip": _T(
+                "Only used for video VAEs: amount of frames to overlap; auto-clamped.",
+                "Только для видео-VAE: перекрытие в кадрах; авто-кламп.")}),
+        }
+        hidden = {
+            "prompt": "PROMPT",
+            "unique_id": "UNIQUE_ID",
+        }
+        return {"required": required, "optional": optional, "hidden": hidden}
+
+    @classmethod
+    def VALIDATE_INPUTS(cls, **kwargs):
+        name = kwargs.get("model_name")
+        if name and name != " ":
+            if folder_paths.get_full_path(_LATENT_UPSCALE_FOLDER, name) is None:
+                return f"Model not found in {_LATENT_UPSCALE_FOLDER}: {name}"
+        return True
+
+    @staticmethod
+    def _log(msg):
+        """Единый лог-префикс для консоли ComfyUI.
+        Single log prefix for the ComfyUI console."""
+        print(f"{LOG_PREFIX} {msg}")
+
+    @staticmethod
+    def _vram_stats():
+        """Снимок VRAM (MB): использовано и свободно. Возвращает None без CUDA.
+        VRAM snapshot (MB): used and free. Returns None without CUDA."""
+        if not torch.cuda.is_available():
+            return None
+        try:
+            used_mb = torch.cuda.memory_allocated() / (1024 * 1024)
+            free_mb = torch.cuda.mem_get_info()[0] / (1024 * 1024)
+            return (used_mb, free_mb)
+        except Exception:
+            return None
+
+    # ------------------------------------------------------------------
+    # Ключ фазы семплирования: идентичность входов сверху + параметры.
+    # Виджеты декода в ключ НЕ входят — их смена не инвалидирует кэш.
+    # Sampling-phase key: identity of upstream inputs + params.
+    # Decode widgets are NOT in the key — changing them keeps the cache.
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _sig_tuple(sigmas):
+        if sigmas is None:
+            return None
+        if isinstance(sigmas, torch.Tensor):
+            return tuple(float(x) for x in sigmas.detach().cpu().flatten().tolist())
+        return tuple(float(x) for x in sigmas)
+
+    def _sampling_key(self, model, positive, negative, latent_image, sigmas,
+                      seed, steps, cfg, sampler_name, scheduler, denoise):
+        refs = (model, positive, negative, latent_image, sigmas)
+        params = (int(seed), int(steps), float(cfg), str(sampler_name), str(scheduler),
+                  float(denoise), self._sig_tuple(sigmas))
+        return (refs, params)
+
+    @staticmethod
+    def _key_match(entry, key):
+        refs, params = key
+        erefs, eparams = entry["refs"], entry["params"]
+        if len(refs) != len(erefs):
+            return False
+        for a, b in zip(refs, erefs):
+            if a is not b:
+                return False
+        return params == eparams
+
+    def sample(self, latent, model_name, mode, scale, width, height, megapixels, align,
+               keep_proportion, device, precision, offload_after_upscale,
+               model, positive, seed, steps, cfg, sampler_name, scheduler,
+               negative=None, sigmas=None, denoise=1.0, vae=None, audio_vae=None,
+               decode_mode="standard", tile_size=512, overlap=64, temporal_size=64,
+               temporal_overlap=8, prompt=None, unique_id=None):
+        dec_mode = str(decode_mode)
+        uid = str(unique_id) if unique_id is not None else None
+        # Фаза 1: обученный апскейл входного латента (с кэшем по ноде).
+        # Phase 1: learned upscale of the input latent (per-node cache).
+        upscaled = self._upscale_phase(latent, uid, model_name, mode, scale, width, height,
+                                       megapixels, align, keep_proportion, device, precision,
+                                       offload_after_upscale)
+        # Фаза 2: refine-семплирование апскейленного латента (с кэшем по ноде).
+        # Phase 2: refine sampling of the upscaled latent (per-node cache).
+        key = self._sampling_key(model, positive, negative, upscaled, sigmas,
+                                 seed, steps, cfg, sampler_name, scheduler, denoise)
+        entry = _SAMPLE_CACHE.get(uid) if uid is not None else None
+        hit = entry is not None and self._key_match(entry, key)
+        if hit:
+            latent_dict = entry["latent"]
+            video_lat = entry["video"]
+            audio_lat = entry["audio"]
+            self._log("CACHE HIT: refine sampling skipped, VAE decode re-run only")
+        else:
+            latent_dict, video_lat, audio_lat = self._run_sampling(
+                model, positive, negative, upscaled, sigmas, seed, steps, cfg,
+                sampler_name, scheduler, denoise)
+            if uid is not None:
+                _SAMPLE_CACHE[uid] = {"refs": key[0], "params": key[1], "latent": latent_dict,
+                                      "video": video_lat, "audio": audio_lat}
+                while len(_SAMPLE_CACHE) > _CACHE_LIMIT:
+                    _SAMPLE_CACHE.pop(next(iter(_SAMPLE_CACHE)))
+                self._log("refine sampling executed, result cached for re-decode")
+        # Фаза 3: декод видео и аудио с текущими виджетами декода.
+        # Phase 3: video and audio decode with the current decode widgets.
+        image = None
+        if vae is None or video_lat is None or dec_mode == "off":
+            # Декод выключен или нечем декодировать: явное сообщение вместо тишины.
+            # Decode disabled or nothing to decode: explicit notice, not silence.
+            if vae is None:
+                reason = "vae not connected"
+            elif video_lat is None:
+                reason = "no video latent"
+            else:
+                reason = "mode=off"
+            self._log(f"VAE decode skipped ({reason}): images output = empty "
+                      f"{PLACEHOLDER_SIZE}x{PLACEHOLDER_SIZE} placeholder")
+        else:
+            image = self._decode_and_log(vae, video_lat, dec_mode, tile_size, overlap,
+                                         temporal_size, temporal_overlap, "[refine]")
+        if image is None:
+            image = torch.zeros((1, PLACEHOLDER_SIZE, PLACEHOLDER_SIZE, 3), dtype=torch.float32)
+        audio_out = None
+        if audio_vae is not None and audio_lat is not None:
+            audio_out = self._decode_audio(audio_vae, audio_lat)
+        if audio_out is None:
+            sr = audio_vae.audio_sample_rate if hasattr(audio_vae, "audio_sample_rate") else None
+            audio_out = {
+                "waveform": torch.zeros((1, 1, 1), dtype=torch.float32),
+                "sample_rate": sr or DEFAULT_AUDIO_SAMPLE_RATE,
+            }
+        if audio_lat is None and _output_linked(prompt, unique_id, 1):
+            raise ValueError(
+                "video_audio_latent output is connected, but the input latent has no audio part (plain video "
+                "latent). Feed a joint AV latent or use the video_latent output. / "
+                "Выход video_audio_latent подключён, но во входном латенте нет аудиочасти (обычный видеолатент). "
+                "Подайте совместный AV-латент или используйте выход video_latent."
+            )
+        video_latent = {"samples": video_lat}
+        av_latent = latent_dict if audio_lat is not None else None
+        return (video_latent, av_latent, image, audio_out)
+
+    # ------------------------------------------------------------------
+    # Фаза апскейла: обученная сеть по входному латенту, результат в кэш.
+    # Upscale phase: learned network over the input latent, result cached.
+    # ------------------------------------------------------------------
+    def _upscale_phase(self, latent, uid, model_name, mode, scale, width, height, megapixels,
+                       align, keep_proportion, device, precision, offload_after_upscale):
+        if not model_name or model_name == " ":
+            raise ValueError(f"Place .safetensors/.pth checkpoints into ComfyUI/models/{_LATENT_UPSCALE_FOLDER}/ / "
+                             f"положите чекпоинты .safetensors/.pth в ComfyUI/models/{_LATENT_UPSCALE_FOLDER}/")
+        up_key = (str(model_name), str(mode), float(scale), int(width), int(height),
+                  float(megapixels), int(align), bool(keep_proportion), str(device),
+                  str(precision), bool(offload_after_upscale))
+        entry = _UPSCALE_CACHE.get(uid) if uid is not None else None
+        if entry is not None and entry["refs"] is latent and entry["params"] == up_key:
+            self._log("CACHE HIT: upscale skipped, cached upscaled latent reused")
+            return entry["upscaled"]
+        video_in, audio_in, template = _split_input_latent(latent)
+        video_in = _validate_video(video_in)
+        orig_dtype = video_in.dtype
+        video_out = _upscale_video(video_in, model_name, mode, scale, width, height, megapixels,
+                                   align, keep_proportion, device, precision,
+                                   offload_after_upscale).to(dtype=orig_dtype)
+        if audio_in is None:
+            upscaled = {"samples": video_out}
+        else:
+            audio = audio_in if audio_in.device == video_out.device else audio_in.to(device=video_out.device)
+            upscaled = {"samples": _wrap_nested(video_out, audio, template)}
+        if uid is not None:
+            _UPSCALE_CACHE[uid] = {"refs": latent, "params": up_key, "upscaled": upscaled}
+            while len(_UPSCALE_CACHE) > _CACHE_LIMIT:
+                _UPSCALE_CACHE.pop(next(iter(_UPSCALE_CACHE)))
+        self._log("upscale phase done, upscaled latent passed to refine sampling")
+        return upscaled
+
+    # ------------------------------------------------------------------
+    # Один прогон refine-семплирования без декода.
+    # One refine sampling pass without decode.
+    # ------------------------------------------------------------------
+    def _run_sampling(self, model, positive, negative, latent_image, sigmas, seed, steps, cfg,
+                      sampler_name, scheduler, denoise):
+        # Если негатив не подан, создаём пустой конд.
+        # If negative is not provided, create empty conditioning.
+        if negative is None:
+            negative = self._create_empty_cond(positive)
+        # Семплирование: стандартный путь или кастомные сигмы.
+        # Sampling: standard path or custom sigmas.
+        t0 = time.time()
+        if sigmas is None:
+            result = common_ksampler(
+                model=model, seed=seed, steps=steps, cfg=cfg,
+                sampler_name=sampler_name, scheduler=scheduler,
+                positive=positive, negative=negative,
+                latent=latent_image, denoise=denoise
+            )
+            latent_dict = result[0]
+            steps_used = int(steps)
+            scheduler_used = str(scheduler)
+            denoise_used = float(denoise)
+        else:
+            latent_samples = latent_image["samples"]
+            noise = comfy.sample.prepare_noise(latent_samples, seed, None)
+            sampler = comfy.samplers.sampler_object(sampler_name)
+            samples = comfy.samplers.sample(
+                model, noise, positive, negative, cfg,
+                comfy.model_management.get_torch_device(),
+                sampler, sigmas,
+                model_options=model.model_options if hasattr(model, "model_options") else {},
+                latent_image=latent_samples,
+                denoise_mask=None, callback=None, disable_pbar=False, seed=seed
+            )
+            latent_dict = {"samples": samples}
+            if isinstance(latent_image, dict):
+                for key, value in latent_image.items():
+                    if key not in latent_dict:
+                        latent_dict[key] = value
+            steps_used = max(1, len(sigmas) - 1)
+            scheduler_used = "manual sigmas"
+            denoise_used = float(sigmas[0])
+        dt_sample = time.time() - t0
+        self._log(f"[refine] sampling done in {dt_sample:.2f}s | steps={steps_used} cfg={cfg:.2f} "
+                  f"sampler={sampler_name} scheduler={scheduler_used} denoise={denoise_used:.2f}")
+        video_lat, audio_lat = self._split_av_latent(latent_dict)
+        return latent_dict, video_lat, audio_lat
+
+    # ------------------------------------------------------------------
+    # Обёртка декода с подробным логом: режим, плитки, время, VRAM.
+    # Decode wrapper with verbose log: mode, tiles, time, VRAM.
+    # ------------------------------------------------------------------
+    def _decode_and_log(self, vae, latent, mode, tile_size, overlap, temporal_size, temporal_overlap, tag):
+        samples = latent["samples"] if isinstance(latent, dict) else latent
+        if hasattr(samples, "is_nested") and samples.is_nested:
+            try:
+                samples = samples.unbind()[0]
+            except Exception:
+                pass
+        shape = tuple(int(x) for x in samples.shape) if hasattr(samples, "shape") else "?"
+        dtype = str(samples.dtype) if hasattr(samples, "dtype") else "?"
+        self._log(f"{tag} VAE decode start | mode={mode} | latent shape={shape} dtype={dtype}")
+        vram_before = self._vram_stats()
+        t0 = time.time()
+        try:
+            if mode == "standard":
+                images = vae.decode(samples)
+                actual_mode = "standard"
+                tile_info = None
+            else:
+                try:
+                    images, tile_info = self._decode_tiled_logged(vae, samples, tile_size, overlap,
+                                                                  temporal_size, temporal_overlap)
+                    actual_mode = "tiled"
+                except Exception as e:
+                    self._log(f"{tag} tiled decode FAILED, fallback to standard: {type(e).__name__}: {e}")
+                    t1 = time.time()
+                    images = vae.decode(samples)
+                    dt = time.time() - t1
+                    actual_mode = "standard (fallback after tiled error)"
+                    tile_info = None
+                    self._log(f"{tag} fallback standard decode in {dt:.2f}s")
+        except Exception as e:
+            self._log(f"{tag} VAE decode ERROR: {type(e).__name__}: {e}")
+            return None
+        dt = time.time() - t0
+        if images is None:
+            self._log(f"{tag} VAE decode returned None in {dt:.2f}s")
+            return None
+        if images.dim() == 5:
+            images = images.reshape(-1, images.shape[-3], images.shape[-2], images.shape[-1])
+        out_shape = tuple(int(x) for x in images.shape)
+        vram_after = self._vram_stats()
+        mem_line = ""
+        if vram_before is not None and vram_after is not None:
+            used_b, free_b = vram_before
+            used_a, free_a = vram_after
+            delta = used_a - used_b
+            mem_line = f" | VRAM used {used_b:.0f} -> {used_a:.0f} MB (Δ {delta:+.0f}), free {free_a:.0f} MB"
+        tiles_line = ""
+        if tile_info:
+            tiles_line = (f" | tiles px={tile_info['tile_px']}x{tile_info['tile_px']} "
+                          f"overlap_px={tile_info['overlap_px']} "
+                          f"latent_tiles={tile_info['tile_lat']}x{tile_info['tile_lat']} "
+                          f"overlap_lat={tile_info['overlap_lat']} "
+                          f"spacial_comp={tile_info['spacial']}")
+            if tile_info.get("temporal") is not None:
+                tiles_line += (f" | temporal_comp={tile_info['temporal']} "
+                               f"t_frames={tile_info['t_frames']} t_overlap={tile_info['t_overlap']}")
+        self._log(f"{tag} VAE decode done | mode={actual_mode} | output shape={out_shape} "
+                  f"time={dt:.2f}s{tiles_line}{mem_line}")
+        return images
+
+    # ------------------------------------------------------------------
+    # Плиточный декод с логированием реальных параметров (после компрессии VAE).
+    # Tiled decode logging the real parameters (after VAE compression).
+    # ------------------------------------------------------------------
+    def _decode_tiled_logged(self, vae, latent, tile_size, overlap, temporal_size, temporal_overlap):
+        if tile_size < overlap * 4:
+            overlap = tile_size // 4
+        if temporal_size < temporal_overlap * 2:
+            temporal_overlap = temporal_overlap // 2
+        t_comp = vae.temporal_compression_decode() if hasattr(vae, "temporal_compression_decode") else None
+        if t_comp is not None:
+            ts = max(2, int(temporal_size) // int(t_comp))
+            to = max(1, min(ts // 2, int(temporal_overlap) // int(t_comp)))
+        else:
+            ts, to = None, None
+        s_comp = vae.spacial_compression_decode() if hasattr(vae, "spacial_compression_decode") else 8
+        if not s_comp or int(s_comp) < 1:
+            s_comp = 8
+        tx = max(1, int(tile_size) // int(s_comp))
+        ov = max(0, int(overlap) // int(s_comp))
+        tile_info = {
+            "tile_px": int(tile_size),
+            "overlap_px": int(overlap),
+            "tile_lat": tx,
+            "overlap_lat": ov,
+            "spacial": int(s_comp),
+            "temporal": int(t_comp) if t_comp is not None else None,
+            "t_frames": ts,
+            "t_overlap": to,
+        }
+        try:
+            images = vae.decode_tiled(latent, tile_x=tx, tile_y=tx, overlap=ov, tile_t=ts, overlap_t=to)
+        except TypeError:
+            # Старое ядро без временных аргументов плиток.
+            # Old core without temporal tile arguments.
+            images = vae.decode_tiled(latent, tile_x=tx, tile_y=tx, overlap=ov)
+            tile_info["t_frames"] = None
+            tile_info["t_overlap"] = None
+        return images, tile_info
+
+    # ------------------------------------------------------------------
+    # H3: {"samples": NestedTensor((video, audio))} -> (video, audio).
+    # H3: {"samples": NestedTensor((video, audio))} -> (video, audio).
+    # ------------------------------------------------------------------
+    def _split_av_latent(self, latent_dict):
+        samples = latent_dict["samples"] if isinstance(latent_dict, dict) else latent_dict
+        tensors = samples.tensors if hasattr(samples, "tensors") else None
+        if tensors is None and (samples.is_nested if hasattr(samples, "is_nested") else False):
+            try:
+                tensors = samples.unbind()
+            except Exception:
+                tensors = None
+        if tensors is not None and len(tensors) >= 2:
+            return tensors[0], tensors[1]
+        if tensors is not None and len(tensors) == 1:
+            return tensors[0], None
+        if isinstance(latent_dict, dict) and "audio" in latent_dict:
+            return samples, latent_dict["audio"]
+        return samples, None
+
+    def _decode_audio(self, audio_vae, audio_latent):
+        decoded = None
+        try:
+            if hasattr(audio_vae, "decode_audio"):
+                decoded = audio_vae.decode_audio(audio_latent)
+            elif hasattr(audio_vae, "decode"):
+                decoded = audio_vae.decode(audio_latent)
+        except Exception as e:
+            self._log(f"Audio decode ERROR: {type(e).__name__}: {e}")
+            return None
+        return self._normalize_audio(decoded, audio_vae)
+
+    # ------------------------------------------------------------------
+    # Нормализация аудио в стандарт ComfyUI: {"waveform": [B,C,N], "sample_rate"}.
+    # Normalize audio to ComfyUI standard: {"waveform": [B,C,N], "sample_rate"}.
+    # ------------------------------------------------------------------
+    def _normalize_audio(self, decoded, audio_vae=None):
+        if decoded is None:
+            return None
+        waveform, sample_rate = None, None
+        if isinstance(decoded, dict):
+            waveform = decoded.get("waveform", None)
+            sample_rate = decoded.get("sample_rate", None)
+        elif isinstance(decoded, torch.Tensor):
+            waveform = decoded
+        if waveform is None:
+            return None
+        if sample_rate is None:
+            sample_rate = audio_vae.audio_sample_rate if hasattr(audio_vae, "audio_sample_rate") else None
+        if sample_rate is None:
+            sample_rate = audio_vae.sample_rate if hasattr(audio_vae, "sample_rate") else None
+        if sample_rate is None:
+            sample_rate = DEFAULT_AUDIO_SAMPLE_RATE
+        if (waveform.is_nested if hasattr(waveform, "is_nested") else False) or hasattr(waveform, "tensors"):
+            try:
+                waveform = waveform.tensors[0] if hasattr(waveform, "tensors") else waveform.to_dense()
+            except Exception:
+                return None
+        if waveform.dim() == 2:
+            waveform = waveform.unsqueeze(0)
+        # MiniMax H3 Audio VAE отдаёт channel-last [B, N, C] -> приводим к [B, C, N].
+        # MiniMax H3 Audio VAE returns channel-last [B, N, C] -> convert to [B, C, N].
+        if waveform.dim() == 3:
+            b, d1, d2 = waveform.shape
+            if d2 <= 8 < d1:
+                waveform = waveform.movedim(-1, 1)
+        if waveform.dim() != 3:
+            self._log(f"Unexpected audio waveform dims: {waveform.dim()}")
+            return None
+        return {
+            "waveform": waveform.detach().cpu().float().contiguous(),
+            "sample_rate": int(sample_rate),
+        }
+
+    # ------------------------------------------------------------------
+    # Пустой конд на основе структуры позитивного.
+    # Empty conditioning based on positive structure.
+    # ------------------------------------------------------------------
+    def _create_empty_cond(self, positive):
+        empty = []
+        for cond_pair in positive:
+            if isinstance(cond_pair, (list, tuple)) and len(cond_pair) >= 1:
+                cond_tensor = cond_pair[0]
+                extra = cond_pair[1] if len(cond_pair) > 1 else {}
+                empty_tensor = torch.zeros_like(cond_tensor) if isinstance(cond_tensor, torch.Tensor) else cond_tensor
+                empty_extra = {}
+                if isinstance(extra, dict):
+                    for key, value in extra.items():
+                        empty_extra[key] = torch.zeros_like(value) if isinstance(value, torch.Tensor) else value
+                empty.append([empty_tensor, empty_extra])
+            else:
+                empty.append(cond_pair)
+        return empty
+
+
+# ------------------------------------------------------------------------------
+# Регистрация нод.
+# Node registration.
+# ------------------------------------------------------------------------------
 NODE_CLASS_MAPPINGS = {
     "AGSoftMinimaxH3LatentUpscaler": AGSoftMinimaxH3LatentUpscaler,
+    "AGSoftMinimaxH3LatentUpscalerPlus": AGSoftMinimaxH3LatentUpscalerPlus,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "AGSoftMinimaxH3LatentUpscaler": "🎬🧊AGSoft Minimax H3 Latent Upscaler",
+    "AGSoftMinimaxH3LatentUpscaler": "🎬AGSoft Minimax H3 Latent Upscaler",
+    "AGSoftMinimaxH3LatentUpscalerPlus": "🎬🧊AGSoft Minimax H3 Latent Upscaler Plus",
 }
