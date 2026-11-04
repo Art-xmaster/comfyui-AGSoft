@@ -1,19 +1,27 @@
 """
-==============================================================================
 AGSoft_Minimax_H3_Latent_Upscaler.py
-==============================================================================
 Ноды / Nodes:
-🎬🧊AGSoft Minimax H3 Latent Upscaler — обученный пространственный апскейл
-латентов MiniMax H3 (24 канала, 4D/5D) напрямую в latent-пространстве.
-🎬🧊AGSoft Minimax H3 Latent Upscaler Plus — входной латент проходит обученный
+🎬AGSoft Minimax H3 Latent Upscaler — обученный пространственный апскейл
+латентов MiniMax H3 (24 канала, 4D/5D) напрямую в latent-пространстве;
+опционально пропускает conditioning и ретаргетит латенты ключевых кадров
+minimax_keyframes под апскейленное разрешение.
+🎬AGSoft Minimax H3 Latent Upscaler Plus — входной латент проходит обученный
 апскейлер, затем refine-семплирование (логика 🧩KSampler Plus) и встроенный
-декод VAE в одной ноде.
+декод VAE в одной ноде; ключевые кадры кондиционирования ретаргетятся
+автоматически перед refine-семплированием.
 Описание / Description:
 Обученный пространственный апскейл латентов MiniMax H3 (24 канала, 4D/5D)
 напрямую в latent-пространстве, без дорогого VAE decode/encode.
 Вход умный: обычный видеолатент или совместный AV-латент (NestedTensor
 [video, audio]) — совместная форма разделяется автоматически, апскейлится
 только видеочасть, аудиочасть проходит сквозь ноду без изменений.
+Гайды 📍Add Guide живут в conditioning ключом minimax_keyframes и несут
+латенты изображений, закодированные под разрешение исходного латента. После
+апскейла разрешение генерации другое, и модель MiniMax H3 падает с shape
+mismatch при вшивании рядов ключевых кадров. Обе ноды файла приводят латенты
+ключевых кадров к целевому разрешению той же обученной сетью (ретаргет):
+Plus — внутри себя перед refine-семплированием, база — на сквозном проходе
+conditioning через опциональные вход и выход positive.
 Версия Plus повторяет цепочку «апскейлер между двумя семплерами»: входной
 латент апскейлится обученной сетью, затем уточняется семплером за несколько
 шагов (refine) и декодируется встроенным VAE; кэш по ноде хранит фазу
@@ -25,6 +33,13 @@ in latent space, bypassing costly VAE decode/encode.
 Smart input: plain video latent or native joint AV latent (NestedTensor
 [video, audio]) — the joint form is split automatically, only the video
 member is upscaled while the audio member passes through untouched.
+Add Guide guides live in the conditioning under minimax_keyframes and carry
+image latents encoded at the source latent resolution. After the upscale the
+generation resolution differs and the MiniMax H3 model crashes with a shape
+mismatch while splicing keyframe rows. Both nodes of this file re-target the
+keyframe latents to the target resolution with the same learned network:
+Plus does it internally before refine sampling, the base node does it on a
+conditioning passthrough via the optional positive input and output.
 The Plus version repeats the "upscaler between two samplers" chain: the input
 latent is upscaled by the learned network, then refined by the sampler in a
 few steps and decoded by the built-in VAE; the per-node cache keeps the
@@ -32,36 +47,37 @@ upscale phase and the sampling phase separate, so changing decode widgets
 re-decodes only, and changing sampler widgets does not re-run the upscale.
 Возможности / Features:
 ⚡ Умный вход: plain video latent или joint AV latent с авторазделением
-Smart input: plain video latent or joint AV latent with auto-split
+   Smart input: plain video latent or joint AV latent with auto-split
 ⚡ База: выходы video_latent и собранный обратно video_audio_latent
-Base outputs: video_latent and re-joined video_audio_latent
+   Base outputs: video_latent and re-joined video_audio_latent
+⚡ Ретаргет латентов minimax_keyframes к апскейленному разрешению в обеих
+   нодах; у базы — опциональный сквозной проход conditioning (positive)
+   Re-target of minimax_keyframes latents to the upscaled resolution in both
+   nodes; the base node gets an optional conditioning passthrough (positive)
 ⚡ Plus: конвейер апскейл -> refine-семплирование -> декод VAE и аудио
-Plus: pipeline upscale -> refine sampling -> VAE and audio decode
+   Plus: pipeline upscale -> refine sampling -> VAE and audio decode
 ⚡ Три режима размера: множитель, мегапиксели, целевые размеры
-Three sizing modes: scale by multiplier, megapixels, target dimensions
+   Three sizing modes: scale by multiplier, megapixels, target dimensions
 ⚡ Двухосевое выравнивание по пиксельной сетке с сохранением пропорций
-Dual-axis pixel-grid alignment with optional aspect-ratio lock
+   Dual-axis pixel-grid alignment with optional aspect-ratio lock
 ⚡ fp32/fp16/bf16, кэш моделей по (checkpoint, device, precision), offload на CPU
-fp32/fp16/bf16, model cache per (checkpoint, device, precision), CPU offload
+   fp32/fp16/bf16, model cache per (checkpoint, device, precision), CPU offload
 ⚡ Автоопределение архитектуры чекпоинта (каналы, блоки, temporal-свёртки)
-Auto-detects checkpoint architecture (channels, blocks, temporal convs)
+   Auto-detects checkpoint architecture (channels, blocks, temporal convs)
 ⚡ Кэш фаз по ноде: декод-виджеты не пересемплируют, семплер-виджеты не
-перезапускают апскейл / Per-node phase cache: decode widgets do not
-re-sample, sampler widgets do not re-run the upscale
+   перезапускают апскейл / Per-node phase cache: decode widgets do not
+   re-sample, sampler widgets do not re-run the upscale
 Автор / Author: AGSoft
-Дата / Date: 03.11.2026
-==============================================================================
+Дата / Date: 04.11.2026
 """
 import os
 import re
 import math
 import time
 import logging
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 import comfy.utils
 import comfy.samplers
 import comfy.sample
@@ -71,7 +87,8 @@ from nodes import common_ksampler
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-# print("[AGSoft Minimax H3 Latent Upscaler] v11.03 loaded (Plus: upscale -> refine sampling -> decode, widget order fixed)")
+
+print("[AGSoft Minimax H3 Latent Upscaler] v11.04 loaded (keyframe retarget in both nodes)")
 
 # Регистрация папки моделей / Model folder registration
 _LATENT_UPSCALE_FOLDER = "latent_upscale_models"
@@ -86,7 +103,6 @@ if _LATENT_UPSCALE_FOLDER not in folder_paths.folder_names_and_paths:
 VAE_DOWNSAMPLE = 16
 H3_VIDEO_CHANNELS = 24
 _PRECISION_DTYPES = {"fp32": torch.float32, "fp16": torch.float16, "bf16": torch.bfloat16}
-
 LOG_PREFIX = "[AGSoft Minimax H3 Latent Upscaler]"
 # Плейсхолдер пустых картинок: чётный размер, чтобы видео-кодеры не падали.
 # Empty-image placeholder: even size so video encoders do not fail.
@@ -203,8 +219,8 @@ def _wrap_nested(video, audio, template=None):
                 return type(template)([video, audio])
             except Exception:
                 pass
-        raise ValueError("This ComfyUI build lacks NestedTensor support for joint AV latents / "
-                         "эта сборка ComfyUI не поддерживает NestedTensor для совместных AV-латентов")
+    raise ValueError("This ComfyUI build lacks NestedTensor support for joint AV latents / "
+                     "эта сборка ComfyUI не поддерживает NestedTensor для совместных AV-латентов")
 
 
 def _split_input_latent(latent):
@@ -523,10 +539,82 @@ def _upscale_video(src, model_name, mode, scale, width, height, megapixels, alig
                     w_in, h_in, w_out, h_out, w_out * ds, h_out * ds, eff)
         # 4. Инференс целиком по времени: temporal-свёртки не допускают чанкования
         # 4. Full-sequence inference: temporal convs make chunking non-equivalent
-        out = upscale_latent_exact(s, model_name, h_out, w_out, device, precision, offload_after_upscale, eff)
+        out = upscale_latent_exact(s, model_name, h_out, w_out, device, precision,
+                                   offload_after_upscale, eff)
     if was_4d:
         out = out.squeeze(2)
     return out
+
+
+def _retarget_keyframes(positive, target_h, target_w, model_name, device, precision,
+                        offload_after_upscale):
+    """Приводит латенты minimax_keyframes (гайды Add Guide) к целевому H/W
+    апскейленного видео той же обученной сетью: модель MiniMax H3 вшивает
+    ряды ключевых кадров в сетку рядов генерации и требует совпадения
+    пространственной сетки, иначе shape mismatch при семплировании.
+    Рефы (minimax_refs) и аудио-латенты не трогаются: рефы по дизайну
+    кросс-разрешенческие, аудио привязано ко времени, а не к пространству.
+    Re-targets minimax_keyframes latents (Add Guide guides) to the target H/W
+    of the upscaled video with the same learned network: the MiniMax H3 model
+    splices keyframe rows into the generation row grid and requires the
+    spatial grids to match, otherwise a shape mismatch hits sampling.
+    Refs (minimax_refs) and audio latents are untouched: refs are
+    cross-resolution by design, audio is tied to time, not space."""
+    if not isinstance(positive, (list, tuple)):
+        return positive
+    changed = False
+    out = []
+    for pair in positive:
+        if not (isinstance(pair, (list, tuple)) and len(pair) >= 2):
+            out.append(pair)
+            continue
+        tensor, extra = pair[0], pair[1]
+        kfs = extra.get("minimax_keyframes") if isinstance(extra, dict) else None
+        if not kfs:
+            out.append(pair)
+            continue
+        new_kfs = []
+        pair_changed = False
+        for kf in kfs:
+            lat = kf.get("latent") if isinstance(kf, dict) else None
+            if not torch.is_tensor(lat):
+                new_kfs.append(kf)
+                continue
+            was_4d = lat.dim() == 4
+            s5 = lat.unsqueeze(2) if was_4d else lat
+            if s5.dim() != 5 or s5.shape[1] != H3_VIDEO_CHANNELS:
+                new_kfs.append(kf)
+                continue
+            sh, sw = int(s5.shape[-2]), int(s5.shape[-1])
+            if (sh, sw) == (target_h, target_w):
+                new_kfs.append(kf)
+                continue
+            if target_h < sh or target_w < sw:
+                logger.warning("%s keyframe latent %dx%d kept as is: target %dx%d is smaller",
+                               LOG_PREFIX, sh, sw, target_h, target_w)
+                new_kfs.append(kf)
+                continue
+            up = _upscale_video(s5, model_name, "target dimensions", 1.0,
+                                target_w * VAE_DOWNSAMPLE, target_h * VAE_DOWNSAMPLE,
+                                1.0, VAE_DOWNSAMPLE, False, device, precision,
+                                offload_after_upscale)
+            if was_4d:
+                up = up.squeeze(2)
+            new_kf = dict(kf)
+            new_kf["latent"] = up
+            new_kfs.append(new_kf)
+            pair_changed = True
+        if pair_changed:
+            new_extra = dict(extra)
+            new_extra["minimax_keyframes"] = new_kfs
+            out.append([tensor, new_extra] + list(pair[2:]))
+            changed = True
+        else:
+            out.append(pair)
+    if changed:
+        logger.info("%s minimax_keyframes latents retargeted to %dx%d",
+                    LOG_PREFIX, target_h, target_w)
+    return out if changed else positive
 
 
 # ==========================================
@@ -536,8 +624,8 @@ class AGSoftMinimaxH3LatentUpscaler:
     CATEGORY = "AGSoft/MiniMaxH3"
     FUNCTION = "upscale"
     WEB_DIRECTORY = "./web"
-    RETURN_TYPES = ("LATENT", "LATENT")
-    RETURN_NAMES = ("video_latent", "video_audio_latent")
+    RETURN_TYPES = ("LATENT", "LATENT", "CONDITIONING")
+    RETURN_NAMES = ("video_latent", "video_audio_latent", "positive")
     OUTPUT_TOOLTIPS = (
         "Upscaled video-only latent; if the input was joint AV, the audio member is dropped here.\n"
         "---\n"
@@ -547,19 +635,28 @@ class AGSoftMinimaxH3LatentUpscaler:
         "---\n"
         "Совместный AV-латент: апскейленное видео, собранное обратно с исходной нетронутой аудиочастью. "
         "Выдаёт ошибку, если выход подключён, а на входе не было аудиочасти.",
+        "Conditioning passthrough with minimax_keyframes latents retargeted to the upscaled "
+        "resolution; None when the positive input is not connected.\n"
+        "---\n"
+        "Сквозной conditioning с латентами minimax_keyframes, приведёнными к апскейленному "
+        "разрешению; None, когда вход positive не подключён.",
     )
     DESCRIPTION = (
         "Learned spatial upscaling of MiniMax H3 latents (24 ch) without VAE decode/encode. "
         "Smart input accepts a plain video latent or a native joint AV latent (NestedTensor [video, audio]): "
         "the joint form is split automatically, only the video member is upscaled, audio passes through untouched. "
-        "Outputs: video_latent (upscaled video only) and video_audio_latent (upscaled video re-joined with the "
-        "original audio), which replaces the Separate AV Latent / Concat AV Latent node pair.\n"
+        "Optional positive passthrough: connect conditioning with Add Guide keyframes and the node re-targets "
+        "their latents to the upscaled resolution, so a downstream sampler never hits the keyframe row mismatch. "
+        "Outputs: video_latent (upscaled video only), video_audio_latent (upscaled video re-joined with the "
+        "original audio) and positive (retargeted conditioning or None).\n"
         "---\n"
         "Обученный пространственный апскейл латентов MiniMax H3 (24 канала) без VAE decode/encode. "
         "Умный вход принимает обычный видеолатент или совместный AV-латент (NestedTensor [video, audio]): "
         "совместная форма разделяется автоматически, апскейлится только видеочасть, аудио проходит без изменений. "
-        "Выходы: video_latent (только апскейленное видео) и video_audio_latent (апскейленное видео, собранное с "
-        "исходным аудио), что заменяет пару нод Separate AV Latent / Concat AV Latent."
+        "Опциональный сквозной проход positive: подключите conditioning с гайдами Add Guide — нода приведёт их "
+        "латенты к апскейленному разрешению, и внешний семплер не поймает рассогласование рядов ключевых кадров. "
+        "Выходы: video_latent (только апскейленное видео), video_audio_latent (апскейленное видео с исходным "
+        "аудио) и positive (ретаргеченный conditioning или None)."
     )
 
     @classmethod
@@ -613,7 +710,7 @@ class AGSoftMinimaxH3LatentUpscaler:
                 "off округляет ширину и высоту по сетке независимо.")}),
             "device": (["cuda", "cpu"], {"default": "cuda", "tooltip": _T(
                 "Compute device for the upscaler network; silently falls back to CPU when CUDA is unavailable.",
-                "Устройство вычислений сети апскейлера; молча откатывается на CPU, если CUDA недоступна.")}),
+                "Устройство вычислений сети апскейлера; молча откатывается на CPU, когда CUDA недоступна.")}),
             "precision": (["fp32", "fp16", "bf16"], {"default": "fp16", "tooltip": _T(
                 "Inference precision of the upscaler network; fp16/bf16 roughly halve VRAM usage.",
                 "Точность инференса сети апскейлера; fp16/bf16 примерно вдвое снижают потребление VRAM.")}),
@@ -622,11 +719,18 @@ class AGSoftMinimaxH3LatentUpscaler:
                 "После запуска переносить кэшированную сеть на CPU для освобождения VRAM; следующий запуск платит "
                 "обратным переносом.")}),
         }
+        optional = {
+            "positive": ("CONDITIONING", {"tooltip": _T(
+                "Optional conditioning passthrough: keyframe latents of minimax_keyframes (Add Guide) are "
+                "retargeted to the upscaled resolution; without it the output positive is None.",
+                "Опциональный сквозной conditioning: латенты ключевых кадров minimax_keyframes (Add Guide) "
+                "приводятся к апскейленному разрешению; без него выход positive равен None.")}),
+        }
         hidden = {
             "prompt": "PROMPT",
             "unique_id": "UNIQUE_ID",
         }
-        return {"required": required, "hidden": hidden}
+        return {"required": required, "optional": optional, "hidden": hidden}
 
     @classmethod
     def VALIDATE_INPUTS(cls, **kwargs):
@@ -636,16 +740,18 @@ class AGSoftMinimaxH3LatentUpscaler:
                 return f"Model not found in {_LATENT_UPSCALE_FOLDER}: {name}"
         return True
 
-    def upscale(self, latent, model_name, mode, scale, width, height, megapixels, align, keep_proportion,
-                device, precision, offload_after_upscale, prompt=None, unique_id=None):
+    def upscale(self, latent, model_name, mode, scale, width, height, megapixels, align,
+                keep_proportion, device, precision, offload_after_upscale, positive=None,
+                prompt=None, unique_id=None):
         if not model_name or model_name == " ":
             raise ValueError(f"Place .safetensors/.pth checkpoints into ComfyUI/models/{_LATENT_UPSCALE_FOLDER}/ / "
                              f"положите чекпоинты .safetensors/.pth в ComfyUI/models/{_LATENT_UPSCALE_FOLDER}/")
         video_in, audio_in, template = _split_input_latent(latent)
         video_in = _validate_video(video_in)
         orig_dtype = video_in.dtype
-        video_out = _upscale_video(video_in, model_name, mode, scale, width, height, megapixels, align,
-                                   keep_proportion, device, precision, offload_after_upscale).to(dtype=orig_dtype)
+        video_out = _upscale_video(video_in, model_name, mode, scale, width, height, megapixels,
+                                   align, keep_proportion, device, precision,
+                                   offload_after_upscale).to(dtype=orig_dtype)
         video_latent = {"samples": video_out}
         if audio_in is None:
             # Аудиочасти нет: второй выход допустим только неподключённым
@@ -657,10 +763,22 @@ class AGSoftMinimaxH3LatentUpscaler:
                     "Выход video_audio_latent подключён, но во входном латенте нет аудиочасти (обычный видеолатент). "
                     "Подайте совместный AV-латент или используйте выход video_latent."
                 )
-            return (video_latent, None)
-        audio = audio_in if audio_in.device == video_out.device else audio_in.to(device=video_out.device)
-        av_latent = {"samples": _wrap_nested(video_out, audio, template)}
-        return (video_latent, av_latent)
+        audio = None
+        if audio_in is not None:
+            audio = audio_in if audio_in.device == video_out.device else audio_in.to(device=video_out.device)
+        av_latent = {"samples": _wrap_nested(video_out, audio, template)} if audio is not None else None
+        pos_out = None
+        if positive is not None:
+            target_h, target_w = int(video_out.shape[-2]), int(video_out.shape[-1])
+            pos_out = _retarget_keyframes(positive, target_h, target_w, model_name, device,
+                                          precision, offload_after_upscale)
+        elif _output_linked(prompt, unique_id, 2):
+            raise ValueError(
+                "positive output is connected, but the positive input is not: connect the conditioning with "
+                "guides to retarget it. / выход positive подключён, но вход positive нет: подключите conditioning "
+                "с гайдами для ретаргета."
+            )
+        return (video_latent, av_latent, pos_out)
 
 
 # ==========================================
@@ -689,19 +807,23 @@ class AGSoftMinimaxH3LatentUpscalerPlus:
         "Декодированное аудио уточнённого латента.",
     )
     DESCRIPTION = (
-        "🎬 AGSoft Minimax H3 Latent Upscaler Plus.\n"
+        "🎬🧊 AGSoft Minimax H3 Latent Upscaler Plus.\n"
         "The input latent (plain video or joint AV) first passes the LEARNED 3D upscaler, then the upscaled "
         "latent is refined by the built-in sampler (few steps, denoise widget) and decoded by the built-in VAE "
         "(tiled/standard/off) with audio decode — the whole 'upscaler between two samplers' chain in one node. "
-        "Per-node phase cache: decode widget changes re-decode only, sampler widget changes do not re-run the "
-        "learned upscale.\n"
+        "Keyframe latents of minimax_keyframes (Add Guide guides) inside positive are re-targeted to the "
+        "upscaled resolution by the same learned network before refine sampling, so guides stay valid and the "
+        "model never hits the keyframe row shape mismatch. Per-node phase cache: decode widget changes "
+        "re-decode only, sampler widget changes do not re-run the learned upscale.\n"
         "---\n"
         "🎬🧊 AGSoft Minimax H3 Latent Upscaler Plus.\n"
         "Входной латент (обычный видео или совместный AV) сначала проходит ОБУЧЕННЫЙ 3D-апскейлер, затем "
         "апскейленный латент уточняется встроенным семплером (несколько шагов, виджет denoise) и декодируется "
         "встроенным VAE (tiled/standard/off) с декодом аудио — вся цепочка «апскейлер между двумя семплерами» "
-        "в одной ноде. Кэш фаз по ноде: смена виджетов декода только передекодирует, смена виджетов семплера "
-        "не перезапускает обученный апскейл."
+        "в одной ноде. Латенты ключевых кадров minimax_keyframes (гайды Add Guide) внутри positive приводятся "
+        "к апскейленному разрешению той же обученной сетью перед refine-семплированием, поэтому гайды остаются "
+        "валидными и модель не ловит shape mismatch рядов ключевых кадров. Кэш фаз по ноде: смена виджетов "
+        "декода только передекодирует, смена виджетов семплера не перезапускает обученный апскейл."
     )
 
     @classmethod
@@ -756,7 +878,7 @@ class AGSoftMinimaxH3LatentUpscalerPlus:
                 "off округляет ширину и высоту по сетке независимо.")}),
             "device": (["cuda", "cpu"], {"default": "cuda", "tooltip": _T(
                 "Compute device for the upscaler network; silently falls back to CPU when CUDA is unavailable.",
-                "Устройство вычислений сети апскейлера; молча откатывается на CPU, если CUDA недоступна.")}),
+                "Устройство вычислений сети апскейлера; молча откатывается на CPU, когда CUDA недоступна.")}),
             "precision": (["fp32", "fp16", "bf16"], {"default": "fp16", "tooltip": _T(
                 "Inference precision of the upscaler network; fp16/bf16 roughly halve VRAM usage.",
                 "Точность инференса сети апскейлера; fp16/bf16 примерно вдвое снижают потребление VRAM.")}),
@@ -769,8 +891,10 @@ class AGSoftMinimaxH3LatentUpscalerPlus:
                 "The model used for refine sampling of the upscaled latent.",
                 "Модель для refine-семплирования апскейленного латента.")}),
             "positive": ("CONDITIONING", {"tooltip": _T(
-                "The conditioning describing the attributes you want to include.",
-                "Условие с атрибутами, которые нужно включить.")}),
+                "The conditioning describing the attributes you want to include; keyframe latents of "
+                "minimax_keyframes inside it are retargeted to the upscaled resolution automatically.",
+                "Условие с атрибутами, которые нужно включить; латенты ключевых кадров minimax_keyframes "
+                "внутри него приводятся к апскейленному разрешению автоматически.")}),
             "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff,
                              "control_after_generate": True, "tooltip": _T(
                 "The random seed used for creating the refine noise.",
@@ -902,8 +1026,14 @@ class AGSoftMinimaxH3LatentUpscalerPlus:
         upscaled = self._upscale_phase(latent, uid, model_name, mode, scale, width, height,
                                        megapixels, align, keep_proportion, device, precision,
                                        offload_after_upscale)
+        # Целевое разрешение апскейленного видео для ретаргета ключевых кадров.
+        # Target resolution of the upscaled video for keyframe re-targeting.
+        video_up, _, _ = _split_input_latent(upscaled)
+        target_h, target_w = int(video_up.shape[-2]), int(video_up.shape[-1])
         # Фаза 2: refine-семплирование апскейленного латента (с кэшем по ноде).
+        # Ключ строится по ИСХОДНОМУ positive, ретаргет применяется только в miss-ветке.
         # Phase 2: refine sampling of the upscaled latent (per-node cache).
+        # The key uses the ORIGINAL positive; the retarget applies in the miss branch only.
         key = self._sampling_key(model, positive, negative, upscaled, sigmas,
                                  seed, steps, cfg, sampler_name, scheduler, denoise)
         entry = _SAMPLE_CACHE.get(uid) if uid is not None else None
@@ -914,8 +1044,10 @@ class AGSoftMinimaxH3LatentUpscalerPlus:
             audio_lat = entry["audio"]
             self._log("CACHE HIT: refine sampling skipped, VAE decode re-run only")
         else:
+            pos_sample = _retarget_keyframes(positive, target_h, target_w, model_name,
+                                             device, precision, offload_after_upscale)
             latent_dict, video_lat, audio_lat = self._run_sampling(
-                model, positive, negative, upscaled, sigmas, seed, steps, cfg,
+                model, pos_sample, negative, upscaled, sigmas, seed, steps, cfg,
                 sampler_name, scheduler, denoise)
             if uid is not None:
                 _SAMPLE_CACHE[uid] = {"refs": key[0], "params": key[1], "latent": latent_dict,
@@ -1246,10 +1378,10 @@ class AGSoftMinimaxH3LatentUpscalerPlus:
         return empty
 
 
-# ------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
 # Регистрация нод.
 # Node registration.
-# ------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
 NODE_CLASS_MAPPINGS = {
     "AGSoftMinimaxH3LatentUpscaler": AGSoftMinimaxH3LatentUpscaler,
     "AGSoftMinimaxH3LatentUpscalerPlus": AGSoftMinimaxH3LatentUpscalerPlus,
