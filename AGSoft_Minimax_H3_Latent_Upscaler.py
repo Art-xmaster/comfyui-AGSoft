@@ -88,7 +88,7 @@ from nodes import common_ksampler
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-print("[AGSoft Minimax H3 Latent Upscaler] v11.04 loaded (keyframe retarget in both nodes)")
+# print("[AGSoft Minimax H3 Latent Upscaler] v11.04 loaded (keyframe retarget in both nodes)")
 
 # Регистрация папки моделей / Model folder registration
 _LATENT_UPSCALE_FOLDER = "latent_upscale_models"
