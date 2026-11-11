@@ -1,12 +1,10 @@
 """
-==============================================================================
 AGSoft_H3_Movie_Chain.py
-==============================================================================
 Ноды / Nodes:
 🎬AGSoft H3 Ref2V Movie Master — голова цепи: глобальные ресурсы фильма и
-   сцена 1; кодирует референсы один раз на весь фильм.
+сцена 1; кодирует референсы один раз на весь фильм.
 🎬AGSoft H3 Ref2V Movie Link — звено цепи: ровно одна следующая сцена; всё
-   глобальное читает из шин, своих ресурсов не держит.
+глобальное читает из шин, своих ресурсов не держит.
 Описание / Description:
 Цепочечная раскадровка фильма MiniMax H3 на Ref-модели (Ref2V): без рефов
 нода работает как text-to-video. Master объявляет клип: clip, vae, audio_vae,
@@ -19,11 +17,17 @@ AGSoft_H3_Movie_Chain.py
 overlap, temporal_size, temporal_overlap); у Link её вход опционален:
 подключил — виджеты схлопываются и сцена живёт на значениях шины, отключил —
 правишь сцену вручную.
+Аудио сцены подаётся в модель тремя независимыми каналами, чтобы липсинк
+выживал при любой обвязке: (1) кусок source_audio сцены входит в minimax_refs
+этой сцены отдельным аудио-рефом — внешние ноды гайдов его не трогают;
+(2) тот же кусок ставится аудио-гайдом в minimax_keyframes кадра 0, а при
+наличии гайда на кадре 0 аудио вливается в него слиянием по индексу;
+(3) каждый гайд с позиции до конца сцены получает свой отрезок дорожки.
+ref_audio_0 остаётся чисто пользовательским входом: глобальный вокальный реф
+из одной сцены отравлял бы инструментальные сцены бормотанием.
 Каждая сцена проходит один конвейер: калькулятор кадров (17N+5) → Ref2V-
-кондиционирование поверх презентации референсов → ключевые кадры
-minimax_keyframes (липсинк-гайд кадра 0 от отрезанного куска source_audio плюс
-мульти-гайды в стиле 📍Add Guide с проверкой границ, клипами 17k+5 и кропом
-аудио по остатку дорожки) → встроенное семплирование (логика 🧩KSampler Plus,
+кондиционирование поверх презентации референсов + аудио-реф сцены → ключевые
+кадры minimax_keyframes → встроенное семплирование (логика 🧩KSampler Plus,
 кэш по ноде: смена виджетов декода не пересемплирует, только передекодирует) →
 декод VAE tiled/standard/off с подробным логом плиток и VRAM → срезы
 продолжения last_frame (самый последний кадр) и context_images (последние N).
@@ -31,7 +35,6 @@ minimax_keyframes (липсинк-гайд кадра 0 от отрезанно�
 (Master) и от курсора шины (Link); source_audio_cut отдаёт сырой точный кусок
 сцены для сведения, stitched_audio собирает куски вверх по цепи (на последнем
 Link — полный трек фильма), audio — саундтрек, сгенерированный моделью.
----
 Chain-based MiniMax H3 movie storyboard on the Ref model (Ref2V): without refs
 the node works as text-to-video. Master declares the clip: clip, vae,
 audio_vae, frame size (Preset/Custom/Megapixels calculator, multiples of 32),
@@ -39,18 +42,22 @@ movie fps, source track start and the full reference set (9 image, 3 video
 with paired soundtracks, 3 audio). References encode once and travel
 chain_base together with resources, the normalized source wave, the audio
 cursor and the accumulated raw pieces. The chain_advanced bus carries sampling
-and decode params (steps, cfg, sampler, scheduler, denoise, decode_mode,
-tile_size, overlap, temporal_size, temporal_overlap); on Link its input is
-optional: linked — widgets collapse and the scene runs on bus values,
-unlinked — the scene is tuned manually.
+and decode params; on Link its input is optional: linked — widgets collapse
+and the scene runs on bus values, unlinked — the scene is tuned manually.
+Scene audio reaches the model through three independent channels so lip sync
+survives any wiring: (1) the scene source_audio piece enters this scene's
+minimax_refs as a standalone audio ref — external guide nodes never touch it;
+(2) the same piece becomes the frame-0 minimax_keyframes audio guide, merging
+into an existing frame-0 guide by index instead of duplicating it; (3) every
+guide gets its own track cut from the guide position to the scene end.
+ref_audio_0 stays a purely user-driven input: a global vocal ref from one
+scene would poison instrumental scenes with mumbling.
 Every scene passes one pipeline: frame calculator (17N+5) → Ref2V
-conditioning over the reference presentation → minimax_keyframes keyframes
-(frame-0 lip sync guide from the cut source_audio piece plus multi guides in
-📍Add Guide style with bounds check, 17k+5 clips and audio crop by track
-remainder) → built-in sampling (🧩KSampler Plus logic, per-node cache: decode
-widget changes re-decode only, no re-sampling) → VAE decode tiled/standard/off
-with verbose tile and VRAM log → continuation slices last_frame (the very last
-frame) and context_images (last N).
+conditioning over the reference presentation plus the scene audio ref →
+minimax_keyframes keyframes → built-in sampling (🧩KSampler Plus logic,
+per-node cache: decode widget changes re-decode only, no re-sampling) → VAE
+decode tiled/standard/off with verbose tile and VRAM log → continuation
+slices last_frame (the very last frame) and context_images (last N).
 Audio: source_audio is cut per scene contiguously from
 source_audio_start_seconds (Master) and from the bus cursor (Link);
 source_audio_cut gives the raw exact scene piece for muxing, stitched_audio
@@ -58,42 +65,44 @@ assembles pieces up the chain (full movie track on the last Link), audio is
 the model-generated soundtrack.
 Возможности / Features:
 ⚡ Только Ref2V: без подключённых рефов сцена генерируется как text-to-video
-   Ref2V only: with no refs linked the scene generates as text-to-video
+Ref2V only: with no refs linked the scene generates as text-to-video
 ⚡ Две шины: chain_base (ресурсы, fps, рефы, курсор и куски аудио) и
-   chain_advanced (семплинг и декод); у Link chain_advanced опциональна
-   Two buses: chain_base (resources, fps, refs, audio cursor and pieces) and
-   chain_advanced (sampling and decode); on Link chain_advanced is optional
+chain_advanced (семплинг и декод); у Link chain_advanced опциональна
+Two buses: chain_base (resources, fps, refs, audio cursor and pieces) and
+chain_advanced (sampling and decode); on Link chain_advanced is optional
 ⚡ Референсы кодируются один раз на Master и переиспользуются всеми сценами
-   References encode once on Master and are reused by every scene
-⚡ Липсинк сцены: отрезанный кусок source_audio входит в minimax_keyframes
-   как аудио-гайд кадра 0; мульти-гайды как в 📍Add Guide (границы, 17k+5)
-   Scene lip sync: the cut source_audio piece enters minimax_keyframes as a
-   frame-0 audio guide; multi guides like 📍Add Guide (bounds, 17k+5)
+References encode once on Master and are reused by every scene
+⚡ Трёхканальное аудио сцены: аудио-реф сцены в minimax_refs, аудио-гайд
+кадра 0 со слиянием по индексу, отрезки дорожки в гайдах — липсинк не
+теряется ни при внутренней, ни при внешней обвязке гайдов
+Three-channel scene audio: scene audio ref in minimax_refs, frame-0 audio
+guide with index merge, track cuts in guides — lip sync survives both
+internal and external guide wiring
 ⚡ Встроенный семплер и декод с кэшем по ноде и логом плиток/VRAM как в
-   🧩KSampler Plus; без model нода отдаёт conditioning и пустой латент
-   Built-in sampler and decode with per-node cache and tile/VRAM log like
-   🧩KSampler Plus; without model the node yields conditioning and empty latent
+🧩KSampler Plus; без model нода отдаёт conditioning и пустой латент
+Built-in sampler and decode with per-node cache and tile/VRAM log like
+🧩KSampler Plus; without model the node yields conditioning and empty latent
 ⚡ Срезы продолжения: last_frame (самый последний кадр), context_images
-   (последние N), latent для апскейла и склейки
-   Continuation slices: last_frame (the very last frame), context_images
-   (last N), latent for upscale and stitch
+(последние N), latent для апскейла и склейки
+Continuation slices: last_frame (the very last frame), context_images
+(last N), latent for upscale and stitch
+⚡ Диагностический лог ключевых кадров сцены: индексы и наличие image/audio
+Diagnostic log of scene keyframes: indices and image/audio presence
 ⚡ UI: виджеты сверху (калькулятор, fps над seed, семплер, декод,
-   ref_image_size, context_frames, группа AddGuide), prompt внизу; живая
-   инфострока формата Base только на Master, между виджетами и prompt
-   UI: widgets on top (calculator, fps above seed, sampler, decode,
-   ref_image_size, context_frames, AddGuide group), prompt at the bottom;
-   the Base-format live line on Master only, between widgets and prompt
+ref_image_size, context_frames, группа AddGuide), prompt внизу; живая
+инфострока формата Base только на Master, между виджетами и prompt
+UI: widgets on top (calculator, fps above seed, sampler, decode,
+ref_image_size, context_frames, AddGuide group), prompt at the bottom;
+the Base-format live line on Master only, between widgets and prompt
 ⚡ Автоскрытие: виджеты калькулятора по режимам, пары секунд/кадры гайдов по
-   счётчику и position_mode, виджеты семплера/декода на Link при подключённой
-   chain_advanced; динамические сокеты рефов (подключено+1) и гайдов
-   Auto-hiding: calculator widgets per mode, guide seconds/frames pairs per
-   counter and position_mode, sampler/decode widgets on Link while
-   chain_advanced is linked; dynamic ref (connected+1) and guide sockets
+счётчику и position_mode, виджеты семплера/декода на Link при подключённой
+chain_advanced; динамические сокеты рефов (подключено+1) и гайдов
+Auto-hiding: calculator widgets per mode, guide seconds/frames pairs per
+counter and position_mode, sampler/decode widgets on Link while
+chain_advanced is linked; dynamic ref (connected+1) and guide sockets
 Автор / Author: AGSoft
-Дата / Date: 05.11.2026
-==============================================================================
+Дата / Date: 11.11.2026
 """
-
 import math
 import time
 import logging
@@ -110,7 +119,7 @@ from nodes import common_ksampler
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# print("[AGSoft H3 Movie Chain] v11.05 loaded (source_audio_start_seconds, detailed headers)")
+# print("[AGSoft H3 Movie Chain] v11.12 loaded (per-scene audio ref, index-merge keyframes)")
 
 FPS = 24
 AUDIO_LATENT_FPS = 40
@@ -386,8 +395,10 @@ def _guide_frames(image):
 
 
 def _build_refs(width, height, vae, audio_vae, refs, ref_image_size):
-    """Кодирует глобальные референсы один раз на весь фильм.
-    Encodes the global references once for the whole movie."""
+    """Кодирует глобальные референсы один раз на весь фильм; ref_audio_0 остаётся
+    пользовательским входом и ничем не подменяется.
+    Encodes the global references once for the whole movie; ref_audio_0 stays a
+    user-driven input and is never substituted."""
     ref_items, ref_blocks = [], []
     needs_video_vae = False
     for i in range(MAX_REF_IMAGES):
@@ -462,13 +473,29 @@ def _build_refs(width, height, vae, audio_vae, refs, ref_image_size):
     return ref_items, ref_blocks
 
 
-def _gen_ref2v(width, height, total, prompt, clip, ref_items, ref_blocks):
-    """Промпт сцены поверх презентации референсов / Scene prompt over ref presentation."""
+def _scene_audio_ref(audio_vae, piece, sr):
+    """Кусок source_audio как отдельный аудио-реф презентации сцены: внешние
+    ноды гайдов не трогают minimax_refs, поэтому музыка сцены доходит всегда.
+    The source_audio piece as a standalone audio ref of the scene presentation:
+    external guide nodes never touch minimax_refs, so the scene music always
+    reaches the model."""
+    if piece is None or audio_vae is None:
+        return [], []
+    z, rt = _encode_ref_audio(audio_vae, {"waveform": piece, "sample_rate": sr})
+    return [{"type": "audio"}], [{"kind": "audio", "ref_audio_t": rt, "audio_latent": z}]
+
+
+def _gen_ref2v(width, height, total, prompt, clip, ref_items, ref_blocks,
+               extra_items=None, extra_blocks=None):
+    """Промпт сцены поверх презентации референсов плюс аудио-реф сцены.
+    Scene prompt over the reference presentation plus the scene audio ref."""
     latent, frame_count = _empty_av_latent(width, height, total)
-    tokens = clip.tokenize(prompt, minimax_ref_items=ref_items or [])
+    items_total = list(ref_items or []) + list(extra_items or [])
+    blocks_total = list(ref_blocks or []) + list(extra_blocks or [])
+    tokens = clip.tokenize(prompt, minimax_ref_items=items_total)
     cond = clip.encode_from_tokens_scheduled(tokens)
-    if ref_blocks:
-        cond = node_helpers.conditioning_set_values(cond, {"minimax_refs": ref_blocks})
+    if blocks_total:
+        cond = node_helpers.conditioning_set_values(cond, {"minimax_refs": blocks_total})
     return cond, latent, frame_count
 
 
@@ -486,21 +513,35 @@ def _set_keyframes(cond, keyframes):
 
 
 def _source_lip_sync(keyframes, audio_vae, piece, sr, audio_t):
-    """Кусок source_audio как аудио-гайд кадра 0 (липсинк сцены).
-    The source_audio piece as a frame-0 audio guide (scene lip sync)."""
+    """Кусок source_audio как аудио-гайд кадра 0; если на кадре 0 уже есть гайд
+    (картинка продолжения и т.п.), аудио вливается в него слиянием по индексу,
+    иначе модель держит один ключ на индекс и теряла бы аудио-гайд.
+    The source_audio piece as a frame-0 audio guide; when a guide already sits
+    at frame 0 (continuity image etc.), the audio merges into it by index,
+    otherwise the model keeps one key per index and would drop the audio."""
     if piece is None or audio_vae is None:
         return
     z, rt = _encode_ref_audio(audio_vae, {"waveform": piece, "sample_rate": sr})
     max_rt = max(1, math.floor(audio_t))
     if rt > max_rt:
         z = z[..., :max_rt].clone()
+    for kf in keyframes:
+        if isinstance(kf, dict) and kf.get("resolved_frame_index") == 0:
+            if "audio_latent" not in kf:
+                kf["audio_latent"] = z
+            return
     keyframes.append({"resolved_frame_index": 0, "audio_latent": z})
 
 
 def _apply_guides(keyframes, width, height, fc, audio_t, vae, audio_vae,
-                  number_of_guides, position_mode, fps, slots):
+                  number_of_guides, position_mode, fps, slots,
+                  source_piece=None, source_sr=None):
     """Мульти-гайды как в 📍AGSoft Add Guide: границы, клипы 17k+5, кроп аудио.
-    Multi guides like 📍AGSoft Add Guide: bounds, 17k+5 clips, audio crop."""
+    При подключённом source_audio аудио каждого гайда берётся из отрезка
+    дорожки от позиции гайда до конца сцены, вход audio_i игнорируется.
+    Multi guides like 📍AGSoft Add Guide: bounds, 17k+5 clips, audio crop.
+    When source_audio is linked each guide audio is cut from the track piece
+    from the guide position to the scene end, the audio_i input is ignored."""
     try:
         from comfy.ldm.minimax.model import FRAME_RESCALE
     except Exception:
@@ -527,19 +568,40 @@ def _apply_guides(keyframes, width, height, fc, audio_t, vae, audio_vae,
                 raise ValueError(f"guide #{i}: image needs the VIDEO VAE / "
                                  f"гайд #{i}: изображению нужен VIDEO VAE")
             kf["latent"] = _video_latent(vae, _resize(img[:gf], width, height, "center"))
-        if aud is not None:
+        if source_piece is not None:
+            start_s = resolved / fps
+            len_s = max(0.0, (fc - resolved) / fps)
+            sub, _pad = _slice_piece(source_piece, source_sr, start_s, len_s)
+            aud_eff = {"waveform": sub, "sample_rate": source_sr}
+        else:
+            aud_eff = aud
+        if aud_eff is not None:
             if audio_vae is None:
-                raise ValueError(f"guide #{i}: audio needs the AUDIO VAE / "
-                                 f"гайд #{i}: аудио требует AUDIO VAE")
-            z, rt = _encode_ref_audio(audio_vae, aud)
-            max_rt = math.floor(audio_t - FRAME_RESCALE * resolved)
-            if max_rt < 1:
-                raise ValueError(f"guide #{i}: frame {resolved} past audio track end / "
-                                 f"гайд #{i}: кадр {resolved} за концом аудиодорожки")
-            if rt > max_rt:
-                z = z[..., :max_rt].clone()
-            kf["audio_latent"] = z
+                if aud is not None:
+                    raise ValueError(f"guide #{i}: audio needs the AUDIO VAE / "
+                                     f"гайд #{i}: аудио требует AUDIO VAE")
+            else:
+                z, rt = _encode_ref_audio(audio_vae, aud_eff)
+                max_rt = math.floor(audio_t - FRAME_RESCALE * resolved)
+                if max_rt < 1:
+                    raise ValueError(f"guide #{i}: frame {resolved} past audio track end / "
+                                     f"гайд #{i}: кадр {resolved} за концом аудиодорожки")
+                if rt > max_rt:
+                    z = z[..., :max_rt].clone()
+                kf["audio_latent"] = z
         keyframes.append(kf)
+
+
+def _log_keyframes(keyframes, tag):
+    """Диагностика: индексы ключей и наличие image/audio в каждом.
+    Diagnostics: key indices and image/audio presence in each."""
+    summary = []
+    for kf in keyframes:
+        if not isinstance(kf, dict):
+            continue
+        flags = ("img" if "latent" in kf else "---") + "/" + ("aud" if "audio_latent" in kf else "---")
+        summary.append(f"{kf.get('resolved_frame_index')}:{flags}")
+    logger.info("%s keyframes: %s", tag, ", ".join(summary) if summary else "none")
 
 
 def _vram_stats():
@@ -1014,8 +1076,10 @@ def _guide_inputs(optional):
             f"Guide image/clip #{i}; batches >=5 frames become 17k+5 clips.",
             f"Направляющее изображение/клип #{i}; батчи >=5 кадров становятся клипами 17k+5.")})
         optional[f"audio_{i}"] = ("AUDIO", {"tooltip": _T(
-            f"Guide audio #{i} for lip sync at the guide position.",
-            f"Направляющее аудио #{i} для липсинка на позиции гайда.")})
+            f"Guide audio #{i}; ignored when source_audio is connected: the track piece "
+            f"from the guide position to the scene end replaces it for lip sync.",
+            f"Направляющее аудио #{i}; игнорируется при подключённом source_audio: кусок "
+            f"дорожки от позиции гайда до конца сцены заменяет его для липсинка.")})
     return optional
 
 
@@ -1039,13 +1103,19 @@ def _scene_body(clip, vae, audio_vae, width, height, prompt, total,
                 uid, tag):
     """Общее тело сцены: кондиционирование, семплирование, срезы.
     Shared scene body: conditioning, sampling, slices."""
+    extra_items, extra_blocks = _scene_audio_ref(audio_vae, source_piece, source_sr)
     cond, latent_empty, fc = _gen_ref2v(width, height, total, prompt, clip,
-                                        ref_items, ref_blocks)
+                                        ref_items, ref_blocks, extra_items, extra_blocks)
     audio_t = round(fc / FPS * AUDIO_LATENT_FPS)
     keyframes = _collect_keyframes(cond)
-    _source_lip_sync(keyframes, audio_vae, source_piece, source_sr, audio_t)
     _apply_guides(keyframes, width, height, fc, audio_t, vae, audio_vae,
-                  number_of_guides, position_mode, fps, slots)
+                  number_of_guides, position_mode, fps, slots,
+                  source_piece, source_sr)
+    zero_audio = any(isinstance(kf, dict) and kf.get("resolved_frame_index") == 0
+                     and "audio_latent" in kf for kf in keyframes)
+    if not zero_audio:
+        _source_lip_sync(keyframes, audio_vae, source_piece, source_sr, audio_t)
+    _log_keyframes(keyframes, tag)
     cond = _set_keyframes(cond, keyframes)
     latent_out, images, gen_audio, decoded = _sample_scene(
         model, negative, sigmas, latent_empty, cond, seed, steps, cfg,
@@ -1067,13 +1137,19 @@ class AGSoft_H3_Ref2V_Movie_Master:
     DESCRIPTION = (
         "Head of the movie chain: global resources (clip, vae, audio_vae, size, fps, refs) "
         "and scene 1. Refs encode once and travel chain_base; sampling/decode params travel "
-        "chain_advanced. Built-in sampler with per-node cache and tiled decode; the cut "
-        "source_audio piece guides lip sync at frame 0 and leaves as source_audio_cut.\n"
+        "chain_advanced. The scene source_audio piece reaches the model three ways: as this "
+        "scene's minimax_refs audio ref (untouchable by external guide nodes), as the frame-0 "
+        "keyframe audio guide (merged into an existing frame-0 guide by index), and as per-"
+        "guide track cuts. ref_audio_0 stays user-driven. Built-in sampler with per-node cache "
+        "and tiled decode; source_audio_cut gives the raw scene piece for muxing.\n"
         "---\n"
         "Голова цепи фильма: глобальные ресурсы (clip, vae, audio_vae, размер, fps, рефы) и "
         "сцена 1. Рефы кодируются один раз и идут по chain_base; параметры семплинга/декода — "
-        "по chain_advanced. Встроенный семплер с кэшем по ноде и плиточным декодом; отрезанный "
-        "кусок source_audio ведёт липсинк на кадре 0 и выходит как source_audio_cut."
+        "по chain_advanced. Кусок source_audio сцены доходит до модели тремя путями: как "
+        "аудио-реф minimax_refs этой сцены (внешние ноды гайдов его не трогают), как аудио-гайд "
+        "кадра 0 в ключевых кадрах (слиянием в существующий гайд кадра 0 по индексу) и как "
+        "отрезки дорожки в гайдах. ref_audio_0 остаётся пользовательским. Встроенный семплер с "
+        "кэшем по ноде и плиточным декодом; source_audio_cut отдаёт сырой кусок для сведения."
     )
 
     @classmethod
@@ -1125,9 +1201,9 @@ class AGSoft_H3_Ref2V_Movie_Master:
                                                 "АУДИО-VAE для всей цепи.")}),
             "source_audio": ("AUDIO", {"tooltip": _T(
                 "Source track cut per scene from source_audio_start_seconds; its piece "
-                "guides scene lip sync.",
-                "Исходная дорожка, режется по сценам от source_audio_start_seconds; её "
-                "кусок ведёт липсинк сцены.")}),
+                "becomes the scene audio ref, the frame-0 lip sync guide and per-guide cuts.",
+                "Исходная дорожка, режется по сценам от source_audio_start_seconds; её кусок "
+                "становится аудио-рефом сцены, липсинк-гайдом кадра 0 и отрезками гайдов.")}),
         }
         for i in range(MAX_REF_IMAGES):
             optional[f"ref_image_{i}"] = ("IMAGE", {"tooltip": _T(
@@ -1142,8 +1218,8 @@ class AGSoft_H3_Ref2V_Movie_Master:
                 f"Дорожка, парная с ref_video_{i}.")})
         for i in range(MAX_REF_AUDIOS):
             optional[f"ref_audio_{i}"] = ("AUDIO", {"tooltip": _T(
-                f"Standalone reference audio #{i + 1} (voice/timbre).",
-                f"Отдельный референс-аудио #{i + 1} (голос/тембр).")})
+                f"Standalone reference audio #{i + 1} (voice/timbre), user-driven only.",
+                f"Отдельный референс-аудио #{i + 1} (голос/тембр), только от пользователя.")})
         _guide_inputs(optional)
         return {"required": required, "optional": optional,
                 "hidden": {"unique_id": "UNIQUE_ID"}}
@@ -1161,8 +1237,8 @@ class AGSoft_H3_Ref2V_Movie_Master:
            "Базовая шина: ресурсы, fps, закодированные рефы, курсор аудио, куски дорожки."),
         _T("Advanced bus: steps, cfg, sampler, scheduler, denoise, decode params.",
            "Продвинутая шина: steps, cfg, sampler, scheduler, denoise, параметры декода."),
-        _T("Scene 1 conditioning (refs + keyframe guides).",
-           "Conditioning сцены 1 (рефы + ключевые гайды)."),
+        _T("Scene 1 conditioning (refs + scene audio ref + keyframe guides).",
+           "Conditioning сцены 1 (рефы + аудио-реф сцены + ключевые гайды)."),
         _T("Sampled scene latent (empty AV latent without model).",
            "Семплированный латент сцены (пустой AV-латент без модели)."),
         _T("Decoded scene frames (placeholder without sampling/decode).",
@@ -1250,13 +1326,19 @@ class AGSoft_H3_Ref2V_Movie_Link:
     DESCRIPTION = (
         "Next scene: reads resources, fps and encoded refs from chain_base; sampling/decode "
         "params from chain_advanced when linked (widgets collapse), else from own widgets. "
-        "Own inputs: prompt, duration, guides, seed. source_audio_cut = raw scene piece; "
-        "stitched_audio on the last Link = full movie track.\n"
+        "Own inputs: prompt, duration, guides, seed. The scene source piece becomes this "
+        "scene's minimax_refs audio ref (survives external Add Guide nodes), the frame-0 "
+        "keyframe audio guide merged by index, and per-guide track cuts — so instrumental "
+        "parts stay instrumental. source_audio_cut = raw scene piece; stitched_audio on the "
+        "last Link = full movie track.\n"
         "---\n"
         "Следующая сцена: читает ресурсы, fps и закодированные рефы из chain_base; параметры "
         "семплинга/декода из chain_advanced, когда подключена (виджеты схлопнуты), иначе из "
-        "своих виджетов. Свои входы: промпт, длительность, гайды, сид. source_audio_cut = "
-        "сырой кусок сцены; stitched_audio на последнем Link = полный трек фильма."
+        "своих виджетов. Свои входы: промпт, длительность, гайды, сид. Кусок дорожки сцены "
+        "становится аудио-рефом minimax_refs этой сцены (переживает внешние ноды Add Guide), "
+        "аудио-гайдом кадра 0 со слиянием по индексу и отрезками дорожки в гайдах — поэтому "
+        "инструментальные части остаются инструментальными. source_audio_cut = сырой кусок "
+        "сцены; stitched_audio на последнем Link = полный трек фильма."
     )
 
     @classmethod
@@ -1316,8 +1398,8 @@ class AGSoft_H3_Ref2V_Movie_Link:
            "Базовая шина для следующего Link (fps несётся дальше)."),
         _T("Advanced bus for the next Link (effective values of this node).",
            "Продвинутая шина для следующего Link (фактические значения этой ноды)."),
-        _T("This scene conditioning (refs + keyframe guides).",
-           "Conditioning сцены (рефы + ключевые гайды)."),
+        _T("This scene conditioning (refs + scene audio ref + keyframe guides).",
+           "Conditioning сцены (рефы + аудио-реф сцены + ключевые гайды)."),
         _T("Sampled scene latent (empty AV latent without model).",
            "Семплированный латент сцены (пустой AV-латент без модели)."),
         _T("Decoded scene frames (placeholder without sampling/decode).",
@@ -1405,7 +1487,6 @@ NODE_CLASS_MAPPINGS = {
     "AGSoft_H3_Ref2V_Movie_Master": AGSoft_H3_Ref2V_Movie_Master,
     "AGSoft_H3_Ref2V_Movie_Link": AGSoft_H3_Ref2V_Movie_Link,
 }
-
 NODE_DISPLAY_NAME_MAPPINGS = {
     "AGSoft_H3_Ref2V_Movie_Master": "🎬AGSoft H3 Ref2V Movie Master",
     "AGSoft_H3_Ref2V_Movie_Link": "🎬AGSoft H3 Ref2V Movie Link",
