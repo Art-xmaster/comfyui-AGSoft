@@ -119,7 +119,7 @@ from nodes import common_ksampler
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# print("[AGSoft H3 Movie Chain] v11.12 loaded (per-scene audio ref, index-merge keyframes)")
+# print("[AGSoft H3 Movie Chain] v11.15 loaded (ref video cap uses scene frame count)")
 
 FPS = 24
 AUDIO_LATENT_FPS = 40
@@ -394,7 +394,7 @@ def _guide_frames(image):
     return n
 
 
-def _build_refs(width, height, vae, audio_vae, refs, ref_image_size):
+def _build_refs(width, height, vae, audio_vae, refs, ref_image_size, frame_count):
     """Кодирует глобальные референсы один раз на весь фильм; ref_audio_0 остаётся
     пользовательским входом и ничем не подменяется.
     Encodes the global references once for the whole movie; ref_audio_0 stays a
@@ -1291,7 +1291,7 @@ class AGSoft_H3_Ref2V_Movie_Master:
         if padded:
             logger.warning("%s source shorter than scene 1 window", LOG_PREFIX)
         ref_items, ref_blocks = _build_refs(width, height, vae, audio_vae,
-                                            slots, ref_image_size)
+                                            slots, ref_image_size, total)
         cond, latent_out, images, gen_audio, last_out, ctx, fc = _scene_body(
             clip, vae, audio_vae, width, height, prompt, total, number_of_guides,
             position_mode, fps_eff, context_frames, seed, steps, cfg, sampler_name,
