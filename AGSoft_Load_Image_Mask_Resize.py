@@ -8,48 +8,40 @@ AGSoft_Load_Image_Mask_Resize.py
     custom_path первой строкой) и ресайзит его синхронно с маской
     (из альфа-канала или входной mask).
     Порядок приоритета источников: input_image > custom_path > комбо image.
-    Превью следует за реально использованным источником: тензор → первый
-    кадр; custom_path → файл (живо при вводе, после выполнения при линке);
-    комбо → выбранный файл. Реализовано связкой серверного состояния и
-    JS-расширения web/AGSoft_Load_Image_Mask_Resize.js.
+    Превью следует за реально использованным источником и показывает тот же
+    пайплайн, что и сервер. Состояние превью привязано к ключу источника
+    (source): JS применяет его только если источник не менялся.
     Порядок трансформаций: rotate → resize → flip.
     Условия ресайза — ЧИСТЫЕ ТРИГГЕРЫ: resize_if_larger/smaller отвечают
-    только за «ресайзить ли» (совпало → ресайз по fit_mode; нет → исходный
-    размер). За «как» отвечает fit_mode: stretch / crop / pad / proportional
-    (proportional = пропорционально вписать в цель, выход = получившийся
-    размер, без полей и без обрезки).
-    Сервер отдаёт в состоянии превью реальные размеры источника и выхода —
-    JS рисует по ним статус-бар (МП, ширина, высота) и пересчитывает цель
-    в реальном времени при правке виджетов.
+    только за «ресайзить ли»; за «как» отвечает fit_mode:
+    stretch / crop / pad / proportional.
+    Сервер отдаёт списки изображений input и output для окна эскизов,
+    генерирует уменьшенные WebP-эскизы с кэшем в temp и импортирует картинку
+    из output/temp в input, чтобы выбранный файл стал обычным источником.
     ---
     Loads an image (combo + upload + optional input_image + custom_path as
     the first row) and resizes it synchronously with a mask (from the alpha
     channel or the input mask).
     Source priority: input_image > custom_path > image combo.
-    The preview follows the actually used source: tensor → first frame;
-    custom_path → file (live when typed, after execution when linked);
-    combo → the selected file. Implemented via server state + the JS
-    extension web/AGSoft_Load_Image_Mask_Resize.js.
+    The preview follows the actually used source and shows the same pipeline
+    as the server. The preview state is bound to a source key, so JS applies
+    it only while the source is unchanged.
     Transform order: rotate → resize → flip.
-    Resize conditions are PURE TRIGGERS: resize_if_larger/smaller only
-    decide "whether to resize" (triggered → resize per fit_mode; otherwise
-    → original size). "How" is fully owned by fit_mode: stretch / crop /
-    pad / proportional (proportional = scale to fit inside the target,
-    output = the resulting size, no bars, no crop).
-    The server publishes real source/output sizes in the preview state —
-    the JS status bar uses them (MP, width, height) and recomputes the
-    target live while the user edits widgets.
+    Resize conditions are PURE TRIGGERS: resize_if_larger/smaller only decide
+    "whether to resize"; fit_mode owns the "how": stretch / crop / pad /
+    proportional.
+    The server lists input and output images for the thumbnail picker,
+    generates small cached WebP thumbnails in temp and imports a picture
+    from output/temp into input so the chosen file becomes a regular source.
 Возможности / Features:
     ⚡ Источники: input_image (приоритет) > custom_path > комбо image (+upload).
        Sources: input_image (priority) > custom_path > image combo (+upload).
-    ⚡ Превью следует за источником (тензор → первый кадр, custom_path → файл).
-       Preview follows the source (tensor → first frame, custom_path → file).
-    ⚡ Авто-скрытие виджетов по режиму размеров и стратегии (JS).
-       Mode-aware widget auto-hiding by size mode and strategy (JS).
-    ⚡ Статус-бар: реальные МП/Ш/В и пересчитанные МП/Ш/В в реальном времени.
-       Status bar: real MP/W/H and recomputed MP/W/H in real time.
-    ⚡ Полное сворачивание виджетов: входы/выходы + превью + статус-бар.
-       Full widget collapse: inputs/outputs + preview + status bar.
+    ⚡ Окно эскизов: папки input и output, подпапки, кэш уменьшенных WebP.
+       Thumbnail picker: input and output folders, subfolders, cached WebP.
+    ⚡ Выбор из output копирует файл в input и сразу делает его источником.
+       Picking from output copies the file into input and selects it.
+    ⚡ Состояние превью привязано к источнику (без подмены после вкладок).
+       Preview state is bound to the source (no stale swap after tab switch).
     ⚡ Выходы: image, mask, width, height, filename, filepath.
        Outputs: image, mask, width, height, filename, filepath.
     ⚡ 7 режимов: мегапиксели / проценты / ширина / высота / оба / longest / shortest.
@@ -69,12 +61,12 @@ AGSoft_Load_Image_Mask_Resize.py
     ⚡ Кратность (divisible_by), инверсия маски, CPU/CUDA.
        Divisibility (divisible_by), mask inversion, CPU/CUDA.
 Требуется / Required:
-    web/AGSoft_Load_Image_Mask_Resize.js — без него не работают авто-скрытие
-    виджетов, статус-бар, сворачивание и превью.
-    web/AGSoft_Load_Image_Mask_Resize.js — without it auto-hiding, the status
-    bar, collapsing and the preview do not work.
+    web/AGSoft_Load_Image_Mask_Resize.js — без него не работают превью,
+    эскизы, авто-скрытие виджетов, статус-бар и сворачивание.
+    web/AGSoft_Load_Image_Mask_Resize.js — without it the preview, thumbnails,
+    auto-hiding, status bar and collapsing do not work.
 Автор / Author: AGSoft
-Дата / Date: 14.11.2026
+Дата / Date: 16.11.2026
 ==============================================================================
 """
 
@@ -85,7 +77,7 @@ import shutil
 import asyncio
 import logging
 import warnings
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -104,13 +96,26 @@ except Exception:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# print("[AGSoft Load Image & Mask Resize] v11.14 loaded (mode-aware widgets + live status bar + collapse)")
+# print("[AGSoft Load Image & Mask Resize] v11.16 loaded (input/output thumbnail picker + combo arrows)")
 
 # =============================================================================
-# Префикс временных превью-копий в папке input (общий с Load Image & Mask).
+# Префикс временных превью-копий в папке input.
 # Prefix for temporary preview copies inside the input folder.
 # =============================================================================
 AGSOFT_PREVIEW_PREFIX = "agsoft_preview"
+AGSOFT_THUMBS_LIMIT = 6000
+AGSOFT_THUMBS_SCAN_LIMIT = 20000
+AGSOFT_THUMBS_DEPTH = 4
+AGSOFT_THUMBS_TTL = 5.0
+AGSOFT_THUMB_DIR = "agsoft_thumbs"
+AGSOFT_THUMB_SIZES = (128, 256, 384)
+AGSOFT_THUMB_TTL = 7 * 24 * 3600
+AGSOFT_THUMB_CLEAN_EVERY = 600.0
+
+_AGSOFT_IMAGE_EXTS = (
+    ".png", ".jpg", ".jpeg", ".jfif", ".webp", ".gif",
+    ".bmp", ".tif", ".tiff", ".ico", ".avif",
+)
 
 _PIL_EXT_MAP = {
     "png": ".png",
@@ -137,8 +142,6 @@ INTERPOLATION_METHODS = {
     "lanczos": Image.LANCZOS,
 }
 
-# 4 стратегии: stretch / crop / pad / proportional.
-# 4 strategies: stretch / crop / pad / proportional.
 FIT_MODES = ["stretch", "crop", "pad", "proportional"]
 CONDITION_MODES = ["none", "width", "height", "both"]
 FLIP_MODES = ["none", "horizontal", "vertical"]
@@ -314,10 +317,8 @@ def _conditional_dims(
     """
     ЧИСТЫЕ ТРИГГЕРЫ (без аспекта — за «как» отвечает fit_mode):
     условие совпало → целевые размеры; не совпало → исходные.
-    none/none = ресайз всегда.
     PURE TRIGGERS (no aspect logic — fit_mode owns the "how"):
     condition triggered → target sizes; otherwise → original ones.
-    none/none = always resize.
     """
     if resize_if_larger != "none":
         trig = (
@@ -337,15 +338,10 @@ def _conditional_dims(
 
 
 # =============================================================================
-# ХЕЛПЕРЫ ПРЕВЬЮ / PREVIEW HELPERS
+# ХЕЛПЕРЫ ПРЕВЬЮ И ФАЙЛОВ / PREVIEW AND FILE HELPERS
 # =============================================================================
 def _agsoft_probe_image(path: str) -> Tuple[str, int, int]:
-    """
-    Реальное расширение по формату PIL + размер (браузеру нужен понятный
-    суффикс, статус-бару — реальные Ш/В).
-    Real extension by PIL format + size (the browser needs a proper suffix,
-    the status bar needs real W/H).
-    """
+    """Реальное расширение формата PIL + размер. / Real PIL format suffix + size."""
     fallback = os.path.splitext(path)[1].lower() or ".png"
     try:
         with Image.open(path) as im:
@@ -370,14 +366,48 @@ def _agsoft_cleanup_previews(folder: str, prefix: str, keep: str) -> None:
         logger.debug(f"[AGSoft Load Image & Mask Resize] cleanup failed: {e}")
 
 
+def _agsoft_safe_name(name: str) -> str:
+    """Имя файла без путей и служебных символов. / File name without paths or unsafe chars."""
+    base = os.path.basename(str(name).replace("\\", "/"))
+    cleaned = "".join(ch for ch in base if ch.isalnum() or ch in " ._-()[]").strip()
+    return (cleaned or "image.png")[:120]
+
+
+def _agsoft_root_for_type(kind: str) -> str:
+    """Корневая папка ComfyUI по типу. / ComfyUI root folder by type."""
+    if kind == "output":
+        return os.path.realpath(folder_paths.get_output_directory())
+    if kind == "temp":
+        return os.path.realpath(folder_paths.get_temp_directory())
+    return os.path.realpath(folder_paths.get_input_directory())
+
+
+def _agsoft_within(path: str, root: str) -> bool:
+    """Проверка, что путь внутри корня. / Checks the path stays inside the root."""
+    try:
+        return os.path.commonpath([path, root]) == root
+    except ValueError:
+        return False
+
+
+def _agsoft_media_path(filename: str, subfolder: str, kind: str) -> Optional[str]:
+    """Безопасный путь к файлу внутри input/output/temp. / Safe path inside a root."""
+    root = _agsoft_root_for_type(kind)
+    safe = _agsoft_safe_name(filename)
+    sub = str(subfolder or "").replace("\\", "/").strip("/")
+    parts = [part for part in sub.split("/") if part not in ("", ".", "..")]
+    path = os.path.realpath(os.path.join(root, *parts, safe))
+    if not _agsoft_within(path, root) or not os.path.isfile(path):
+        return None
+    return path
+
+
 def _agsoft_ensure_preview_sync(custom_path: str) -> Optional[Dict[str, Any]]:
     """
-    БЛОКИРУЮЩАЯ функция: делает файл доступным для просмотра через input и
-    возвращает {"image", "width", "height"}. Если файл уже в input — имя
-    без копирования. Старые копии того же пути удаляются.
-    BLOCKING function: makes the file viewable through input and returns
-    {"image", "width", "height"}. If already inside input — the name without
-    copying. Old copies of the same path are removed.
+    БЛОКИРУЮЩАЯ: делает файл доступным для просмотра через input и возвращает
+    {"image", "width", "height"}. Старые копии того же пути удаляются.
+    BLOCKING: makes the file viewable through input and returns
+    {"image", "width", "height"}. Old copies of the same path are removed.
     """
     path = os.path.realpath(custom_path)
     if not os.path.isfile(path):
@@ -428,11 +458,212 @@ def _agsoft_ensure_preview_sync(custom_path: str) -> Optional[Dict[str, Any]]:
     return {"image": name, "width": width, "height": height}
 
 
+def _agsoft_import_sync(filename: str, subfolder: str, kind: str) -> Optional[Dict[str, Any]]:
+    """
+    Копирует картинку из input/output/temp в корень input под чистым именем,
+    чтобы она стала обычным источником комбо.
+    Copies a picture from input/output/temp into the input root under a clean
+    name so it becomes a regular combo source.
+    """
+    src = _agsoft_media_path(filename, subfolder, kind)
+    if src is None:
+        return None
+    try:
+        with Image.open(src) as im:
+            im.verify()
+    except Exception as e:
+        logger.warning(f"[AGSoft Load Image & Mask Resize] import rejected {src}: {e}")
+        return None
+
+    ext, width, height = _agsoft_probe_image(src)
+    input_dir = os.path.realpath(folder_paths.get_input_directory())
+    try:
+        os.makedirs(input_dir, exist_ok=True)
+    except Exception as e:
+        logger.error(f"[AGSoft Load Image & Mask Resize] input dir failed: {e}")
+        return None
+
+    if os.path.dirname(src) == input_dir:
+        return {"image": os.path.basename(src), "width": width, "height": height}
+
+    try:
+        st = os.stat(src)
+    except Exception as e:
+        logger.warning(f"[AGSoft Load Image & Mask Resize] stat failed: {e}")
+        return None
+
+    stem, suffix = os.path.splitext(_agsoft_safe_name(filename))
+    tag = hashlib.sha256(f"{src}|{int(st.st_mtime)}|{st.st_size}".encode("utf-8", "ignore")).hexdigest()[:8]
+    name = f"{stem}_{tag}{suffix or ext}"
+    dst = os.path.join(input_dir, name)
+    if not os.path.exists(dst):
+        tmp = dst + ".tmp"
+        try:
+            shutil.copy2(src, tmp)
+            os.replace(tmp, dst)
+        except Exception as e:
+            logger.warning(f"[AGSoft Load Image & Mask Resize] import copy failed: {e}")
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except Exception as cleanup_error:
+                logger.debug(f"[AGSoft Load Image & Mask Resize] temp cleanup: {cleanup_error}")
+            return None
+    return {"image": name, "width": width, "height": height}
+
+
+def _agsoft_thumbs_scan(kind: str) -> Dict[str, Any]:
+    """
+    Список изображений папки (с подпапками) для окна эскизов, свежие сверху.
+    Folder images (with subfolders) for the thumbnail picker, newest first.
+    """
+    files: List[Dict[str, Any]] = []
+    folders: List[str] = []
+    root = _agsoft_root_for_type(kind)
+    if not os.path.isdir(root):
+        return {"files": files, "folders": folders}
+
+    base_depth = root.rstrip(os.sep).count(os.sep)
+    # В output папки часто названы по дате: обход с конца даёт свежие файлы
+    # даже если сработал лимит сканирования.
+    # Output folders are often date-named: a reverse walk keeps the newest
+    # files in the list even when the scan limit is reached.
+    reverse = kind == "output"
+    try:
+        for current, dirs, names in os.walk(root):
+            dirs.sort(reverse=reverse)
+            depth = current.rstrip(os.sep).count(os.sep) - base_depth
+            if depth >= AGSOFT_THUMBS_DEPTH:
+                dirs[:] = []
+            rel = os.path.relpath(current, root)
+            sub = "" if rel == "." else rel.replace("\\", "/")
+            if sub:
+                folders.append(sub)
+            for name in names:
+                if kind == "input" and name.startswith(AGSOFT_PREVIEW_PREFIX):
+                    continue
+                if os.path.splitext(name)[1].lower() not in _AGSOFT_IMAGE_EXTS:
+                    continue
+                full = os.path.join(current, name)
+                try:
+                    st = os.stat(full)
+                except Exception as e:
+                    logger.debug(f"[AGSoft Load Image & Mask Resize] thumb stat {name}: {e}")
+                    continue
+                files.append({
+                    "name": name,
+                    "subfolder": sub,
+                    "mtime": int(st.st_mtime),
+                    "size": int(st.st_size),
+                })
+                if len(files) >= AGSOFT_THUMBS_SCAN_LIMIT:
+                    break
+            if len(files) >= AGSOFT_THUMBS_SCAN_LIMIT:
+                break
+    except Exception as e:
+        logger.warning(f"[AGSoft Load Image & Mask Resize] thumbnail scan failed: {e}")
+
+    files.sort(key=lambda item: item["mtime"], reverse=True)
+    folders.sort()
+    return {"files": files[:AGSOFT_THUMBS_LIMIT], "folders": folders}
+
+
+# Кэш списков: обход дерева не должен повторяться при каждом открытии окна.
+# List caches: the tree walk must not repeat on every picker opening.
+_THUMBS_CACHE: Dict[str, Dict[str, Any]] = {
+    "input": {"stamp": 0.0, "data": None},
+    "output": {"stamp": 0.0, "data": None},
+}
+_THUMB_CLEAN_STAMP = 0.0
+
+
+def _agsoft_thumbs_cached(kind: str, force: bool) -> Dict[str, Any]:
+    """Список с коротким TTL. / Listing with a short TTL."""
+    bucket = _THUMBS_CACHE["output"] if kind == "output" else _THUMBS_CACHE["input"]
+    now = time.time()
+    cached = bucket["data"]
+    stamp = float(bucket["stamp"])
+    if not force and cached is not None and now - stamp < AGSOFT_THUMBS_TTL:
+        return cached
+    data = _agsoft_thumbs_scan(kind)
+    bucket["data"] = data
+    bucket["stamp"] = now
+    return data
+
+
+def _agsoft_cleanup_thumbs(folder: str) -> None:
+    """Редкая уборка старых эскизов. / Occasional cleanup of old thumbnails."""
+    global _THUMB_CLEAN_STAMP
+    now = time.time()
+    if now - _THUMB_CLEAN_STAMP < AGSOFT_THUMB_CLEAN_EVERY:
+        return
+    _THUMB_CLEAN_STAMP = now
+    try:
+        for name in os.listdir(folder):
+            path = os.path.join(folder, name)
+            try:
+                if now - os.path.getmtime(path) > AGSOFT_THUMB_TTL:
+                    os.remove(path)
+            except Exception as e:
+                logger.debug(f"[AGSoft Load Image & Mask Resize] thumb cleanup {name}: {e}")
+    except Exception as e:
+        logger.debug(f"[AGSoft Load Image & Mask Resize] thumb cleanup failed: {e}")
+
+
+def _agsoft_thumb_sync(filename: str, subfolder: str, size: int, kind: str) -> Optional[str]:
+    """
+    Уменьшенный WebP-эскиз с кэшем в temp: браузер тянет десятки килобайт
+    вместо полных кадров, повторные открытия окна мгновенные.
+    Small cached WebP thumbnail in temp: the browser pulls kilobytes instead
+    of full frames, and reopening the picker is instant.
+    """
+    src = _agsoft_media_path(filename, subfolder, kind)
+    if src is None:
+        return None
+    try:
+        st = os.stat(src)
+    except Exception as e:
+        logger.warning(f"[AGSoft Load Image & Mask Resize] thumb stat failed: {e}")
+        return None
+
+    cache_dir = os.path.join(os.path.realpath(folder_paths.get_temp_directory()), AGSOFT_THUMB_DIR)
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+    except Exception as e:
+        logger.error(f"[AGSoft Load Image & Mask Resize] thumb dir failed: {e}")
+        return None
+
+    key_source = f"{src}|{int(st.st_mtime)}|{st.st_size}|{size}"
+    key = hashlib.sha256(key_source.encode("utf-8", "ignore")).hexdigest()[:24]
+    dst = os.path.join(cache_dir, f"{key}.webp")
+    if not os.path.exists(dst):
+        tmp = dst + ".tmp"
+        try:
+            with Image.open(src) as source:
+                # Быстрое декодирование JPEG в уменьшенном масштабе.
+                # Fast JPEG decode at a reduced scale.
+                source.draft("RGB", (size * 2, size * 2))
+                frame = ImageOps.exif_transpose(source)
+                frame.thumbnail((size, size), Image.LANCZOS, reducing_gap=2.0)
+                if frame.mode not in ("RGB", "RGBA"):
+                    frame = frame.convert("RGBA" if "A" in frame.getbands() else "RGB")
+                frame.save(tmp, "WEBP", quality=82, method=4)
+            os.replace(tmp, dst)
+        except Exception as e:
+            logger.warning(f"[AGSoft Load Image & Mask Resize] thumbnail failed for {src}: {e}")
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except Exception as cleanup_error:
+                logger.debug(f"[AGSoft Load Image & Mask Resize] temp cleanup: {cleanup_error}")
+            return None
+
+    _agsoft_cleanup_thumbs(cache_dir)
+    return dst
+
+
 def _agsoft_tensor_preview_png(tensor: torch.Tensor, unique_id: Any) -> Optional[Dict[str, Any]]:
-    """
-    Первый кадр тензора → превью-PNG в input, старые превью ноды удаляются.
-    First tensor frame → preview PNG inside input, old node previews removed.
-    """
+    """Первый кадр тензора → превью-PNG в input. / First tensor frame → preview PNG."""
     if tensor is None or not hasattr(tensor, "cpu"):
         return None
     frame = tensor[0] if tensor.dim() == 4 else tensor
@@ -469,14 +700,10 @@ def _agsoft_is_loopback(request: Any) -> bool:
 
 
 # =============================================================================
-# Состояние превью по unique_id:
-# {"image": имя в input, "custom": bool, "stamp": str,
-#  "src_w"/"src_h": реальный размер источника, "out_w"/"out_h": размер выхода}.
-# "custom" = источник переопределил комбо (тензор или custom_path).
-# "stamp"  = строковая метка версии: JS применяет состояние только при новом
-# штампе (защита от перезаписей при повторных опросах).
-# Preview state by unique_id. "custom" = the source overrode the combo.
-# "stamp" is a string version mark: JS applies the state only on a new stamp.
+# Состояние превью по unique_id. "source" — ключ источника на момент запуска:
+# JS применяет состояние только если ключ совпал с текущим.
+# Preview state by unique_id. "source" is the source key at execution time:
+# JS applies the state only when the key matches the current one.
 # =============================================================================
 _LAST_PREVIEW: Dict[str, Dict[str, Any]] = {}
 
@@ -486,8 +713,6 @@ if PromptServer is not None and hasattr(PromptServer, "instance"):
 
 if _server is not None and web is not None and not hasattr(_server, "_agsoft_image_mask_resize_route"):
     try:
-        # Живой апдейт при вводе пути руками (до очереди).
-        # Live update while typing a path (before queue).
         @_server.routes.post("/agsoft/image_mask_resize_ensure_preview")
         async def agsoft_image_mask_resize_ensure_preview(request):
             """Готовит превью внешнего файла. / Prepares an external file preview."""
@@ -506,8 +731,60 @@ if _server is not None and web is not None and not hasattr(_server, "_agsoft_ima
                 return web.json_response({"error": "not an image or not found"}, status=400)
             return web.json_response(info)
 
-        # Состояние после выполнения: JS читает по событию executed.
-        # Post-execution state: JS reads it on the executed event.
+        @_server.routes.post("/agsoft/image_mask_resize_import")
+        async def agsoft_image_mask_resize_import(request):
+            """Импорт картинки в input для комбо. / Imports a picture into input."""
+            if not _agsoft_is_loopback(request):
+                return web.json_response({"error": "local only"}, status=403)
+            try:
+                data = await request.json()
+            except Exception as e:
+                logger.warning(f"[AGSoft Load Image & Mask Resize] bad import request: {e}")
+                data = {}
+            filename = str(data.get("filename", "")).strip()
+            subfolder = str(data.get("subfolder", "")).strip()
+            kind = str(data.get("type", "input")).strip().lower()
+            if not filename:
+                return web.json_response({"error": "empty filename"}, status=400)
+            info = await asyncio.to_thread(_agsoft_import_sync, filename, subfolder, kind)
+            if not info:
+                return web.json_response({"error": "not an image or not found"}, status=400)
+            return web.json_response(info)
+
+        @_server.routes.get("/agsoft/image_mask_resize_thumbs")
+        async def agsoft_image_mask_resize_thumbs(request):
+            """Список изображений папки для эскизов. / Folder image list for thumbnails."""
+            force = str(request.query.get("force", "")) == "1"
+            kind = str(request.query.get("type", "input")).strip().lower()
+            data = await asyncio.to_thread(_agsoft_thumbs_cached, kind, force)
+            return web.json_response(data)
+
+        @_server.routes.get("/agsoft/image_mask_resize_thumb")
+        async def agsoft_image_mask_resize_thumb(request):
+            """Отдаёт готовый уменьшенный эскиз. / Serves a ready small thumbnail."""
+            filename = str(request.query.get("filename", ""))
+            subfolder = str(request.query.get("subfolder", ""))
+            kind = str(request.query.get("type", "input")).strip().lower()
+            try:
+                wanted = int(request.query.get("size", "256"))
+            except Exception:
+                wanted = 256
+            size = min(AGSOFT_THUMB_SIZES, key=lambda item: abs(item - wanted))
+            path = await asyncio.to_thread(_agsoft_thumb_sync, filename, subfolder, size, kind)
+            if not path:
+                return web.Response(status=404)
+            try:
+                with open(path, "rb") as handle:
+                    payload = handle.read()
+            except Exception as e:
+                logger.warning(f"[AGSoft Load Image & Mask Resize] thumb read failed: {e}")
+                return web.Response(status=500)
+            return web.Response(
+                body=payload,
+                content_type="image/webp",
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
+
         @_server.routes.get("/agsoft/image_mask_resize_preview_state")
         async def agsoft_image_mask_resize_preview_state(request):
             """Отдаёт состояние превью ноды. / Returns the node preview state."""
@@ -515,7 +792,7 @@ if _server is not None and web is not None and not hasattr(_server, "_agsoft_ima
             state = _LAST_PREVIEW.get(node_id)
             if not state:
                 return web.json_response({
-                    "image": "", "custom": False, "stamp": "",
+                    "image": "", "custom": False, "stamp": "", "source": "",
                     "src_w": 0, "src_h": 0, "out_w": 0, "out_h": 0,
                 })
             return web.json_response(state)
@@ -658,10 +935,8 @@ def _resize_batch(
             bg_mask.paste(scaled_mask, (left, top))
             resized_image, resized_mask = bg_image, bg_mask
         elif fit_mode == "proportional":
-            # Пропорционально вписать в цель; выход = получившийся размер,
-            # без полей и без обрезки.
-            # Scale proportionally to fit inside the target; output = the
-            # resulting size, no bars, no crop.
+            # Пропорционально вписать в цель; выход = получившийся размер.
+            # Scale proportionally to fit inside the target; output = result.
             scale = min(target_w / pil_image.width, target_h / pil_image.height)
             new_w = max(1, int(pil_image.width * scale))
             new_h = max(1, int(pil_image.height * scale))
@@ -678,8 +953,6 @@ def _resize_batch(
 
     final_image = torch.cat(resized_images, dim=0).to(target_device)
     final_mask = torch.cat(resized_masks, dim=0).to(target_device)
-    # Реальный размер выхода (для proportional он может отличаться от цели).
-    # Real output size (for proportional it may differ from the target).
     final_height, final_width = int(final_image.shape[1]), int(final_image.shape[2])
     return final_image, final_mask, final_width, final_height
 
@@ -853,12 +1126,10 @@ def _resize_inputs() -> Dict[str, Any]:
 # НОДА: 🖼️AGSoft Load Image & Mask Resize
 # =============================================================================
 class AGSoft_Load_Image_Mask_Resize:
-    # JS лежит рядом с этим файлом в папке web/ (общая папка со всеми нодами).
-    # Файл: web/AGSoft_Load_Image_Mask_Resize.js — БЕЗ него не работают
-    # авто-скрытие виджетов, статус-бар, сворачивание и превью.
-    # JS is located next to this file in the web/ folder (shared folder).
-    # File: web/AGSoft_Load_Image_Mask_Resize.js — without it auto-hiding,
-    # the status bar, collapsing and the preview do not work.
+    # Файл: web/AGSoft_Load_Image_Mask_Resize.js — БЕЗ него не работают превью,
+    # эскизы, авто-скрытие виджетов, статус-бар и сворачивание.
+    # File: web/AGSoft_Load_Image_Mask_Resize.js — without it the preview,
+    # thumbnails, auto-hiding, status bar and collapsing do not work.
     WEB_DIRECTORY = "./web"
 
     @classmethod
@@ -884,22 +1155,21 @@ class AGSoft_Load_Image_Mask_Resize:
                 "default": "",
                 "tooltip": (
                     "Optional: absolute path to an image (or a linked string). "
-                    "Priority: input_image > custom_path > image combo. The preview follows it "
-                    "(live when typed, after execution when linked).\n"
+                    "Priority: input_image > custom_path > image combo.\n"
                     "---\n"
                     "Опционально: абсолютный путь к изображению (или линк со строкой). "
-                    "Приоритет: input_image > custom_path > комбо image. Превью следует за ним "
-                    "(живо при вводе, после выполнения — если линком)."
+                    "Приоритет: input_image > custom_path > комбо image."
                 ),
             }),
             "image": (sorted(files), {
                 "image_upload": True,
                 "tooltip": (
-                    "Select / upload an image from the input directory (used when input_image "
-                    "is not connected and custom_path is empty).\n"
+                    "Select / upload an image from the input directory. Click the edges of the widget "
+                    "to step through files, click the middle to open the thumbnail picker "
+                    "(input / output, search, subfolders).\n"
                     "---\n"
-                    "Выберите / загрузите изображение из папки input (используется, если не подключён "
-                    "input_image и пуст custom_path)."
+                    "Выберите / загрузите изображение из папки input. Клик по краям виджета листает "
+                    "файлы, клик по центру открывает окно эскизов (input / output, поиск, подпапки)."
                 ),
             }),
         }
@@ -938,17 +1208,17 @@ class AGSoft_Load_Image_Mask_Resize:
     DESCRIPTION = (
         "🖼️ AGSoft Load Image & Mask Resize.\n"
         "Loads an image (input_image tensor > custom_path > combo/upload) and resizes it with a mask. "
-        "rotate → resize → flip, sync image+mask, 7 size modes, pure trigger conditions "
-        "(resize_if_larger/smaller), 4 strategies (stretch / crop / pad / proportional), 9 positions, "
-        "divisibility, CPU/CUDA, premultiplied alpha. Mode-aware widget auto-hiding, live status bar "
-        "(real MP/W/H → recomputed MP/W/H) and full widget collapse (JS from web/).\n"
+        "rotate → resize → flip, sync image+mask, 7 size modes, pure trigger conditions, "
+        "4 strategies (stretch / crop / pad / proportional), 9 positions, divisibility, CPU/CUDA, "
+        "premultiplied alpha. Input/output thumbnail picker, Assets-panel drag&drop, live pipeline "
+        "preview, mode-aware widget hiding, status bar and full collapse (JS from web/).\n"
         "---\n"
         "🖼️ AGSoft Load Image & Mask Resize.\n"
         "Загружает изображение (тензор input_image > custom_path > комбо/upload) и ресайзит с маской. "
-        "rotate → resize → flip, синхронные image+mask, 7 режимов, условия-триггеры "
-        "(resize_if_larger/smaller), 4 стратегии (stretch / crop / pad / proportional), 9 позиций, "
-        "кратность, CPU/CUDA, premultiplied alpha. Авто-скрытие виджетов по режиму, живой статус-бар "
-        "(реальные МП/Ш/В → пересчитанные МП/Ш/В) и полное сворачивание виджетов (JS из web/)."
+        "rotate → resize → flip, синхронные image+mask, 7 режимов, условия-триггеры, "
+        "4 стратегии (stretch / crop / pad / proportional), 9 позиций, кратность, CPU/CUDA, "
+        "premultiplied alpha. Эскизы input/output, drag&drop из панели Assets, живое превью пайплайна, "
+        "авто-скрытие виджетов, статус-бар и сворачивание (JS из web/)."
     )
 
     @classmethod
@@ -1017,9 +1287,9 @@ class AGSoft_Load_Image_Mask_Resize:
             # =================================================================
             preview_info = None
             used_override = False
+            source_key = ""
 
             if input_image is not None:
-                # ---------- Приоритет 1: тензор изображения ----------
                 loaded_image = input_image
                 batch_size, orig_h, orig_w, channels = loaded_image.shape
                 if mask is not None:
@@ -1031,15 +1301,14 @@ class AGSoft_Load_Image_Mask_Resize:
                 has_name = bool(image and str(image).strip())
                 filename_with_ext = os.path.basename(image) if has_name else "tensor"
                 full_path = folder_paths.get_annotated_filepath(image) if has_name else ""
-                # Превью: первый кадр тензора. / Preview: first tensor frame.
                 try:
                     preview_info = _agsoft_tensor_preview_png(loaded_image, unique_id)
                 except Exception as e:
                     logger.warning(f"[AGSoft Load Image & Mask Resize] tensor preview: {e}")
                     preview_info = None
                 used_override = True
+                source_key = "tensor"
             else:
-                # ---------- Приоритет 2/3: custom_path > комбо image ----------
                 used_custom = bool(custom_path) and os.path.exists(custom_path)
                 if not used_custom and (not image or not str(image).strip()):
                     raise ValueError(
@@ -1091,14 +1360,13 @@ class AGSoft_Load_Image_Mask_Resize:
                 batch_size = loaded_image.shape[0]
                 if mask is not None:
                     loaded_mask = _normalize_mask(mask, batch_size, "cpu")
-                # Превью: файл (копия в input при необходимости).
-                # Preview: the file (copied into input when needed).
                 try:
                     preview_info = _agsoft_ensure_preview_sync(image_path)
                 except Exception as e:
                     logger.warning(f"[AGSoft Load Image & Mask Resize] file preview: {e}")
                     preview_info = None
                 used_override = used_custom
+                source_key = str(custom_path).strip() if used_custom else str(image)
 
             # =================================================================
             # РЕСАЙЗ-ПАЙПЛАЙН / RESIZE PIPELINE
@@ -1114,14 +1382,13 @@ class AGSoft_Load_Image_Mask_Resize:
                 resize_if_larger, resize_if_smaller,
             )
 
-            # Состояние для JS: превью + реальные размеры источника и выхода.
-            # State for JS: preview + real source and output sizes.
             if unique_id is not None:
                 info = preview_info or {}
                 _LAST_PREVIEW[str(unique_id)] = {
                     "image": info.get("image", ""),
                     "custom": bool(used_override),
                     "stamp": str(time.time_ns()),
+                    "source": source_key,
                     "src_w": int(loaded_image.shape[2]),
                     "src_h": int(loaded_image.shape[1]),
                     "out_w": int(fw),
