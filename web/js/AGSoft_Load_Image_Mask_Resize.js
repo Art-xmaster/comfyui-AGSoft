@@ -5,83 +5,63 @@ AGSoft_Load_Image_Mask_Resize.js
 Расширение: 🖼️AGSoft Load Image & Mask Resize
 Описание / Description:
     Клиентская часть ноды AGSoft_Load_Image_Mask_Resize.
-    1) Превью рисует DOM-виджет ноды, но node.imgs остаётся настоящим:
-       от него зависят MaskEditor и пункты меню ноды. Штатный показ
-       картинки гасится флагом hideOutputImages и скрытием core-виджета
-       превью, поэтому дубля нет, а «Open in MaskEditor» работает.
-    2) Правый клик по превью и статус-бару открывает стандартное меню
-       ComfyUI (MaskEditor, Open/Copy/Save Image, свойства ноды и т.д.).
-       Результат MaskEditor (clipspace) сразу становится источником.
-    3) Превью вписывается в текущий размер ноды и НЕ меняет его. Минимум
-       высоты (computeSize) не зависит от текущего размера, поэтому ноду
-       можно свободно растягивать и сжимать по вертикали в обе стороны.
-       При скрытии/показе виджетов область превью сохраняется.
-    4) Превью собирается на canvas тем же пайплайном, что и сервер:
-       rotate → fit (stretch / crop / pad / proportional) → flip.
-       Углы поворота и поля pad заливаются выбранным pad_image_color,
-       прозрачность показывается шахматной подложкой, якорь crop_position
-       и интерполяция учитываются.
-    5) Авто-скрытие виджетов по контексту: resize_mode решает, какие
-       размерные виджеты нужны; fit_mode — нужны ли якорь и цвета полей;
-       цвета полей видны и при повороте; angle_degrees скрывается,
-       когда выбран rotation_preset.
-    6) Полное сворачивание: кнопка ▴/▾ прячет параметры, но оставляет
-       custom_path, image и кнопку загрузки. Состояние хранится в
-       node.properties.agsoft_collapsed и сохраняется в воркфлоу.
-    7) Статус-бар в самом низу: реальные МП и Ш×В источника и пересчитанные
-       МП и Ш×В результата в реальном времени; после выполнения —
-       фактические размеры выхода (метка ✓).
-    Виджеты с подключённым линком не скрываются никогда; входы и линки не
-    пересобираются — слоты фиксированные.
+    1) Виджет image: клик по краям (зоны стрелок) листает файлы по кругу,
+       клик по центру открывает окно эскизов. Значение и превью обновляются
+       сразу, как при обычном выборе в комбо.
+    2) Окно эскизов — виртуальная сетка: в DOM живут только видимые строки
+       плюс запас. Внизу переключатель папок input / output; выбор из output
+       копирует файл в input и делает его источником. Окно открывается на
+       текущей картинке, стрелки двигают курсор, Enter выбирает, Esc закрывает.
+       Картинки тянутся с серверного роута уменьшенных WebP-эскизов.
+    3) Превью рисует DOM-виджет, node.imgs остаётся настоящим: MaskEditor и
+       меню ноды работают. Правый клик по превью и статус-бару открывает
+       стандартное меню ComfyUI.
+    4) Состояние сервера применяется только при совпадении ключа источника.
+    5) Drag&drop из проводника, с рабочего стола и из панели Assets: сначала
+       ссылка (text/uri-list), затем файлы. Drop ловится и на всей ноде.
+    6) Превью собирается на canvas тем же пайплайном, что и сервер:
+       rotate → fit (stretch / crop / pad / proportional) → flip, с цветом
+       полей pad_image_color и шахматной подложкой для прозрачности.
+    7) Превью вписывается в размер ноды и не меняет его; нода свободно
+       тянется и сжимается по вертикали и горизонтали.
+    8) Авто-скрытие виджетов по режиму; сворачивание параметров кнопкой ▴
+       оставляет custom_path, image, загрузку, превью и статус-бар.
+    9) Статус-бар: реальные МП и Ш×В источника → пересчитанные МП и Ш×В
+       результата; после выполнения — фактический размер выхода (✓).
     ---
     Client part of the AGSoft_Load_Image_Mask_Resize node.
-    1) The DOM widget draws the preview, but node.imgs stays real: the mask
-       editor and the node menu items depend on it. The built-in picture
-       display is disabled via hideOutputImages and by hiding the core
-       preview widget, so there is no duplicate and "Open in MaskEditor"
-       keeps working.
-    2) Right-clicking the preview or the status bar opens the standard
-       ComfyUI node menu (MaskEditor, Open/Copy/Save Image, properties...).
-       The MaskEditor result (clipspace) immediately becomes the source.
-    3) The preview fits the current node size and does NOT change it. The
-       height minimum (computeSize) is size-independent, so the node can be
-       stretched and shrunk vertically in both directions. Hiding/showing
-       widgets preserves the preview area.
-    4) The preview is composed on a canvas with the same pipeline as the
-       server: rotate → fit (stretch / crop / pad / proportional) → flip.
-       Rotation corners and pad bars use pad_image_color, transparency is
-       shown over a checkerboard, crop_position and interpolation are kept.
-    5) Context-aware widget auto-hiding: resize_mode decides which size
-       widgets are needed; fit_mode decides the anchor and pad colors; pad
-       colors stay visible while rotating; angle_degrees is hidden when
-       rotation_preset is set.
-    6) Full collapse: the ▴/▾ button hides the parameters but keeps
-       custom_path, image and the upload button. The state is kept in
-       node.properties.agsoft_collapsed and saved with the workflow.
-    7) Status bar at the very bottom: real source MP and W×H plus recomputed
-       output MP and W×H in real time; after execution the actual output
-       sizes are shown (✓ mark).
-    Widgets with a connected link are never hidden; inputs and links are not
-    rebuilt — the slots are fixed.
-Возможности / Features:
-    ⚡ Правый клик = штатное меню ноды + MaskEditor. / Right-click = the
-       standard node menu + MaskEditor.
-    ⚡ Одно превью = реальный пайплайн с pad_image_color. / Single preview =
-       the real pipeline with pad_image_color.
-    ⚡ Свободный ресайз ноды по вертикали и горизонтали. / Free node resize.
-    ⚡ Сворачивание параметров с сохранением выбора источника.
-       Parameter collapse while keeping the source controls.
-    ⚡ Живой статус-бар: МП, ширина, высота. / Live status bar: MP, W, H.
-    ⚡ Drag&drop изображения и кнопка загрузки. / Image drag&drop and upload.
+    1) The image widget: clicking its edges (arrow zones) cycles files,
+       clicking the middle opens the thumbnail picker. Value and preview
+       update immediately, exactly like a normal combo selection.
+    2) The picker is a virtual grid: only visible rows plus an overscan live
+       in the DOM. A bottom switch selects input / output; picking from
+       output copies the file into input and selects it. The window opens on
+       the current picture, arrows move the cursor, Enter picks, Esc closes.
+       Images come from a server route serving small WebP thumbnails.
+    3) The DOM widget draws the preview while node.imgs stays real, so the
+       mask editor and the node menu keep working. Right-click opens the
+       standard ComfyUI node menu.
+    4) Server state is applied only when the source key matches.
+    5) Drag&drop from the file manager, the desktop and the Assets panel:
+       the link (text/uri-list) first, then files. Drops hit the whole node.
+    6) The preview is composed on a canvas with the server pipeline:
+       rotate → fit (stretch / crop / pad / proportional) → flip, using
+       pad_image_color and a checkerboard for transparency.
+    7) The preview fits the node size and never changes it; the node resizes
+       freely in both directions.
+    8) Mode-aware widget hiding; the ▴ collapse keeps custom_path, image,
+       upload, preview and the status bar.
+    9) Status bar: real source MP/W×H → recomputed output MP/W×H; after
+       execution the actual output size is shown (✓).
 Автор / Author: AGSoft
-Дата / Date: 14.11.2026
+Дата / Date: 16.11.2026
 ==============================================================================
 */
 
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
-console.log("[AGSoft Load Image & Mask Resize] JS extension loaded v11.14 (node context menu + MaskEditor support)");
+console.log("[AGSoft Load Image & Mask Resize] JS extension loaded v11.16 (input/output picker + arrows)");
 
 const NODE_CLASS = "AGSoft_Load_Image_Mask_Resize";
 const STYLE_ID = "agsoft-load-image-mask-resize-style";
@@ -95,6 +75,13 @@ const PREVIEW_PADDING = 8;
 const PREVIEW_WORK_MAX = 1280;
 const PATH_DEBOUNCE_MS = 450;
 const DROP_GUARD_MS = 600;
+const PICKER_GUARD_MS = 400;
+const CLICK_GUARD_MS = 200;
+const SEARCH_DEBOUNCE_MS = 120;
+const THUMB_GAP = 8;
+const THUMB_OVERSCAN = 2;
+const COMBO_ARROW_ZONE = 30;
+const IMAGE_EXT_RE = /\.(png|jpe?g|jfif|webp|gif|bmp|tiff?|ico|avif)$/i;
 
 const SIZE_WIDGETS = ["target_megapixels", "target_percentage", "target_width", "target_height"];
 const MODE_WIDGETS = {
@@ -106,8 +93,6 @@ const MODE_WIDGETS = {
     target_longest: ["target_width"],
     target_shortest: ["target_width"],
 };
-// Управление источником остаётся доступным в свёрнутом виде.
-// Source controls stay available while collapsed.
 const COLLAPSE_KEEP = ["custom_path", "image"];
 const NEAREST_METHODS = ["nearest", "nearest-exact"];
 
@@ -132,6 +117,8 @@ const CROP_POSITIONS = {
     bottom: [0.5, 1.0],
     "bottom-right": [1.0, 1.0],
 };
+
+let thumbDialog = null;
 
 
 // =============================================================================
@@ -221,6 +208,144 @@ function ensureStyles() {
     border-color: var(--ags-accent, #7fd4ff);
     color: var(--ags-accent, #7fd4ff);
 }
+.agsoft-thumbs-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.62);
+}
+.agsoft-thumbs-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: min(1100px, 92vw);
+    height: min(760px, 88vh);
+    padding: 12px;
+    box-sizing: border-box;
+    border-radius: 12px;
+    background: #16161c;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55);
+}
+.agsoft-thumbs-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.agsoft-thumbs-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.agsoft-thumbs-title {
+    font: 600 13px system-ui, sans-serif;
+    color: #e6ebf5;
+}
+.agsoft-thumbs-spacer {
+    margin-right: auto;
+}
+.agsoft-thumbs-note {
+    margin-left: auto;
+    font: 11px system-ui, sans-serif;
+    color: #9aa4b2;
+}
+.agsoft-thumbs-field {
+    height: 28px;
+    padding: 0 8px;
+    box-sizing: border-box;
+    border-radius: 6px;
+    color: #dfe6f2;
+    background: #0f0f14;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    font: 12px system-ui, sans-serif;
+}
+.agsoft-thumbs-tab {
+    height: 28px;
+    padding: 0 14px;
+    cursor: pointer;
+    border-radius: 6px;
+    font: 12px system-ui, sans-serif;
+    color: #cfd6e4;
+    background: #0f0f14;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.agsoft-thumbs-tab:hover {
+    border-color: #7fd4ff;
+}
+.agsoft-thumbs-tab.agsoft-active {
+    color: #0b0b0f;
+    background: #7fd4ff;
+    border-color: #7fd4ff;
+}
+.agsoft-thumbs-viewport {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
+    border-radius: 8px;
+    background: #0f0f13;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    contain: strict;
+}
+.agsoft-thumbs-sizer {
+    position: relative;
+    width: 100%;
+}
+.agsoft-thumbs-card {
+    position: absolute;
+    box-sizing: border-box;
+    overflow: hidden;
+    cursor: pointer;
+    border-radius: 8px;
+    background: #15151b;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.agsoft-thumbs-card img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.agsoft-thumbs-card:hover {
+    border-color: #7fd4ff;
+}
+.agsoft-thumbs-card.agsoft-selected {
+    border-color: #7fd4ff;
+    box-shadow: inset 0 0 0 2px #7fd4ff;
+}
+.agsoft-thumbs-card.agsoft-cursor {
+    border-color: #ffd479;
+    box-shadow: inset 0 0 0 2px #ffd479;
+}
+.agsoft-thumbs-name {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 3px 5px;
+    font: 10px/1.2 system-ui, sans-serif;
+    color: #dfe6f2;
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.80));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+}
+.agsoft-thumbs-empty {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 18px;
+    text-align: center;
+    font: 12px system-ui, sans-serif;
+    color: #9aa4b2;
+    pointer-events: none;
+}
 `;
     document.head.appendChild(style);
 }
@@ -278,7 +403,16 @@ function isUploadButton(widget) {
     return label.includes("upload");
 }
 
-function viewUrl(name, stamp) {
+function sourceKey(node) {
+    // Ключ источника совпадает с тем, что пишет сервер в состоянии.
+    // The source key mirrors what the server stores in the state.
+    if (hasTensorLink(node)) return "tensor";
+    const custom = String(widgetValue(node, "custom_path") || "").trim();
+    if (custom) return custom;
+    return String(widgetValue(node, "image") || "");
+}
+
+function splitAnnotated(name) {
     let type = "input";
     let value = String(name || "");
     const annotated = value.match(/^(.*)\s\[(input|output|temp)\]$/);
@@ -287,10 +421,26 @@ function viewUrl(name, stamp) {
         type = annotated[2];
     }
     const index = value.lastIndexOf("/");
-    const subfolder = index >= 0 ? value.slice(0, index) : "";
-    const filename = index >= 0 ? value.slice(index + 1) : value;
-    const query = `filename=${encodeURIComponent(filename)}&subfolder=${encodeURIComponent(subfolder)}`;
-    return api.apiURL(`/view?${query}&type=${type}&rand=${stamp}`);
+    return {
+        filename: index >= 0 ? value.slice(index + 1) : value,
+        subfolder: index >= 0 ? value.slice(0, index) : "",
+        type,
+    };
+}
+
+function viewUrl(name, stamp) {
+    const ref = splitAnnotated(name);
+    const query = `filename=${encodeURIComponent(ref.filename)}&subfolder=${encodeURIComponent(ref.subfolder)}`;
+    return api.apiURL(`/view?${query}&type=${ref.type}&rand=${stamp}`);
+}
+
+function thumbUrl(item, px, kind) {
+    const query = `filename=${encodeURIComponent(item.name)}&subfolder=${encodeURIComponent(item.subfolder || "")}`;
+    return api.apiURL(`/agsoft/image_mask_resize_thumb?${query}&type=${kind}&size=${px}&v=${item.mtime}`);
+}
+
+function fullName(item) {
+    return item.subfolder ? `${item.subfolder}/${item.name}` : item.name;
 }
 
 function megapixels(size) {
@@ -298,10 +448,8 @@ function megapixels(size) {
 }
 
 function openNodeMenu(node, event) {
-    // DOM-виджет перехватывает мышь, поэтому меню ноды открываем сами:
-    // так остаются MaskEditor, Open/Copy/Save Image и свойства ноды.
-    // The DOM widget captures the mouse, so the node menu is opened here:
-    // MaskEditor, Open/Copy/Save Image and node properties stay available.
+    // DOM-виджет перехватывает мышь, поэтому меню ноды открываем сами.
+    // The DOM widget captures the mouse, so the node menu is opened here.
     const canvas = app.canvas;
     if (!canvas) return;
     if (typeof canvas.selectNode === "function") {
@@ -331,9 +479,7 @@ function attachNodeMenu(node, element) {
 
 function suppressCorePreview(node) {
     // node.imgs не трогаем: MaskEditor и меню ноды читают именно его.
-    // Гасим только штатную отрисовку, чтобы картинка не дублировалась.
-    // node.imgs is left intact: MaskEditor and the node menu read it.
-    // Only the built-in drawing is disabled so the picture is not duplicated.
+    // node.imgs stays intact: MaskEditor and the node menu read it.
     node.hideOutputImages = true;
     let changed = false;
     for (const widget of node.widgets || []) {
@@ -354,10 +500,8 @@ function suppressCorePreview(node) {
 }
 
 function adoptClipspace(node, value) {
-    // MaskEditor пишет результат в комбо image, поэтому custom_path должен
-    // уступить: иначе нарисованная маска не станет источником.
-    // MaskEditor writes its result into the image combo, so custom_path must
-    // step aside; otherwise the painted mask never becomes the source.
+    // MaskEditor пишет результат в комбо image: custom_path должен уступить.
+    // MaskEditor writes into the image combo: custom_path must step aside.
     if (!String(value || "").includes("clipspace")) return;
     const pathWidget = findWidget(node, "custom_path");
     if (pathWidget) pathWidget.value = "";
@@ -485,8 +629,7 @@ function predictOutput(srcW, srcH, values) {
 
 
 // =============================================================================
-// РАЗМЕРЫ: минимум не зависит от текущего размера, превью берёт остаток
-// SIZES: the minimum is size-independent, the preview takes the remainder
+// РАЗМЕРЫ / SIZES
 // =============================================================================
 function baseSize(node) {
     const state = node._agsoft;
@@ -524,8 +667,6 @@ function layoutPreviewCanvas(node) {
     const fy = flip === "vertical" ? -1 : 1;
     state.canvasEl.style.width = `${Math.max(1, state.frame.w * scale)}px`;
     state.canvasEl.style.height = `${Math.max(1, state.frame.h * scale)}px`;
-    // Отражение — последний шаг пайплайна, поэтому применяется к кадру целиком.
-    // Flip is the last pipeline step, so it is applied to the whole frame.
     state.canvasEl.style.transform = `translate(-50%, -50%) scale(${fx}, ${fy})`;
 }
 
@@ -575,8 +716,8 @@ function renderPreview(node) {
         frameH = Math.max(1, Math.floor(rotH * scale));
     }
 
-    // Рабочее разрешение ограничено: превью не должно тратить память полного выхода.
-    // Working resolution is capped: the preview must not allocate the full output.
+    // Рабочее разрешение ограничено: превью не должно тратить память выхода.
+    // Working resolution is capped so the preview never allocates the output.
     const work = Math.min(1, PREVIEW_WORK_MAX / Math.max(rotW, rotH, frameW, frameH));
     const stageW = Math.max(1, Math.round(rotW * work));
     const stageH = Math.max(1, Math.round(rotH * work));
@@ -643,8 +784,6 @@ function wantedVisibility(node) {
     const usesPad = fit === "pad";
     const usesAnchor = fit === "pad" || fit === "crop";
     const preset = String(values.rotation_preset || "none");
-    // Цвет полей нужен и при повороте: им заливаются пустые углы.
-    // Pad colors are also used by rotation: they fill the empty corners.
     const rotated = preset !== "none" || num(values.angle_degrees, 0) !== 0;
     visible.set("crop_position", usesAnchor);
     visible.set("pad_image_color", usesPad || rotated);
@@ -677,8 +816,6 @@ function setWidgetVisible(widget, visible) {
 function applyVisibility(node) {
     const state = node._agsoft;
     if (!state) return;
-    // Область превью фиксируется ДО смены видимости, чтобы кадр не прыгал.
-    // The preview area is captured BEFORE visibility changes so it never jumps.
     const areaBefore = previewAreaHeight(node);
     const collapsed = node.properties.agsoft_collapsed === true;
     const wanted = wantedVisibility(node);
@@ -740,8 +877,6 @@ function setPreview(node, name, size) {
         } else {
             state.src = { w: loader.naturalWidth, h: loader.naturalHeight };
         }
-        // Размер ноды не трогаем: кадр вписывается в отведённое место.
-        // The node size stays untouched: the frame fits the allotted space.
         syncPreviewBox(node);
         renderPreview(node);
         updateStatus(node);
@@ -824,6 +959,9 @@ async function refreshState(node) {
         if (response.status !== 200) return;
         const data = await response.json();
         if (!data || !data.stamp || data.stamp === state.stamp) return;
+        // Состояние прошлого запуска не должно перекрывать новый источник.
+        // A previous run must never override a newly chosen source.
+        if (String(data.source || "") !== sourceKey(node)) return;
         state.stamp = data.stamp;
         const srcW = num(data.src_w, 0);
         const srcH = num(data.src_h, 0);
@@ -845,8 +983,38 @@ async function refreshState(node) {
 
 
 // =============================================================================
-// ЗАГРУЗКА ФАЙЛА / FILE UPLOAD
+// ИСТОЧНИК: выбор, загрузка, импорт / SOURCE: select, upload, import
 // =============================================================================
+function selectImage(node, name, size) {
+    const state = node._agsoft;
+    const combo = findWidget(node, "image");
+    if (combo) {
+        const options = combo.options || {};
+        const values = Array.isArray(options.values) ? options.values : combo.values;
+        if (Array.isArray(values) && !values.includes(name)) values.push(name);
+        combo.value = name;
+        state.comboWatch = String(name);
+    }
+    const pathWidget = findWidget(node, "custom_path");
+    if (pathWidget) pathWidget.value = "";
+    state.dirty = true;
+    state.out = null;
+    state.stamp = "";
+    applyVisibility(node);
+    setPreview(node, name, size || null);
+}
+
+function setCustomPath(node, path) {
+    const widget = findWidget(node, "custom_path");
+    if (!widget) return;
+    widget.value = path;
+    node._agsoft.dirty = true;
+    node._agsoft.out = null;
+    node._agsoft.stamp = "";
+    applyVisibility(node);
+    schedulePathPreview(node);
+}
+
 async function uploadFile(node, file) {
     const state = node._agsoft;
     if (!file) return;
@@ -865,28 +1033,648 @@ async function uploadFile(node, file) {
         }
         const data = await response.json();
         const name = data.subfolder ? `${data.subfolder}/${data.name}` : data.name;
-        const combo = findWidget(node, "image");
-        if (combo) {
-            const options = combo.options || {};
-            const values = Array.isArray(options.values) ? options.values : combo.values;
-            if (Array.isArray(values) && !values.includes(name)) values.push(name);
-            combo.value = name;
-            state.comboWatch = String(name);
-        }
-        // Загруженный файл должен стать активным источником.
-        // The uploaded file must become the active source.
-        const pathWidget = findWidget(node, "custom_path");
-        if (pathWidget) pathWidget.value = "";
-        state.dirty = true;
-        state.out = null;
-        applyVisibility(node);
-        showComboPreview(node);
+        selectImage(node, name, null);
     } catch (error) {
         console.warn("[AGSoft Load Image & Mask Resize] upload failed:", error);
         showHint(node, "upload failed / загрузка не удалась");
     }
 }
 
+async function importServerFile(node, ref) {
+    showHint(node, "importing… / импорт…");
+    try {
+        const response = await api.fetchApi("/agsoft/image_mask_resize_import", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                filename: ref.filename,
+                subfolder: ref.subfolder || "",
+                type: ref.type || "input",
+            }),
+        });
+        if (response.status !== 200) {
+            showHint(node, "import failed / импорт не удался");
+            return;
+        }
+        const data = await response.json();
+        selectImage(node, data.image, { w: num(data.width, 0), h: num(data.height, 0) });
+    } catch (error) {
+        console.warn("[AGSoft Load Image & Mask Resize] import failed:", error);
+        showHint(node, "import failed / импорт не удался");
+    }
+}
+
+function parseViewRef(text) {
+    // Панель Assets отдаёт ссылку /view, а не файл: разбираем параметры.
+    // The Assets panel hands over a /view link, not a file: parse its params.
+    let url = null;
+    try {
+        url = new URL(String(text), window.location.origin);
+    } catch (error) {
+        return null;
+    }
+    if (!/\/view\/?$/.test(url.pathname)) return null;
+    const filename = url.searchParams.get("filename") || "";
+    if (!filename) return null;
+    return {
+        filename,
+        subfolder: url.searchParams.get("subfolder") || "",
+        type: url.searchParams.get("type") || "input",
+    };
+}
+
+function fileUrlToPath(text) {
+    let value = decodeURIComponent(String(text).replace(/^file:\/\/+/i, ""));
+    if (/^\/[a-zA-Z]:/.test(value)) value = value.slice(1);
+    return value;
+}
+
+function looksLikePath(text) {
+    const value = String(text || "").trim();
+    if (!IMAGE_EXT_RE.test(value)) return false;
+    return /^[a-zA-Z]:[\\/]/.test(value) || value.startsWith("/") || value.startsWith("\\\\");
+}
+
+async function applyLink(node, link) {
+    const ref = parseViewRef(link);
+    if (ref) {
+        await importServerFile(node, ref);
+        return;
+    }
+    if (/^file:/i.test(link)) {
+        setCustomPath(node, fileUrlToPath(link));
+        return;
+    }
+    if (looksLikePath(link)) {
+        setCustomPath(node, link.trim());
+        return;
+    }
+    if (/^https?:/i.test(link)) {
+        try {
+            const response = await fetch(link);
+            if (!response.ok) throw new Error(`status ${response.status}`);
+            const blob = await response.blob();
+            const tail = link.split("?")[0].split("/").pop() || "image.png";
+            await uploadFile(node, new File([blob], tail, { type: blob.type }));
+        } catch (error) {
+            console.warn("[AGSoft Load Image & Mask Resize] link fetch failed:", error);
+            showHint(node, "link unavailable / ссылка недоступна");
+        }
+        return;
+    }
+    if (IMAGE_EXT_RE.test(link.trim())) {
+        await importServerFile(node, { filename: link.trim(), subfolder: "", type: "input" });
+        return;
+    }
+    showHint(node, "unsupported drop / неподдерживаемый объект");
+}
+
+function readTransfer(transfer) {
+    // Данные читаются синхронно: после события dataTransfer уже пуст.
+    // Data is read synchronously: dataTransfer is empty after the event.
+    const data = { files: [], texts: [] };
+    if (!transfer) return data;
+    for (const file of Array.from(transfer.files || [])) {
+        data.files.push(file);
+    }
+    for (const type of Array.from(transfer.types || [])) {
+        if (type === "Files") continue;
+        let value = "";
+        try {
+            value = transfer.getData(type);
+        } catch (error) {
+            value = "";
+        }
+        if (value) data.texts.push(value);
+    }
+    return data;
+}
+
+function pickLink(texts) {
+    for (const block of texts) {
+        for (const rawLine of String(block).split(/\r?\n/)) {
+            const line = rawLine.trim();
+            if (!line || line.startsWith("#")) continue;
+            const html = line.match(/src\s*=\s*["']([^"']+)["']/i);
+            const candidate = html ? html[1] : line.split("\t")[0];
+            if (parseViewRef(candidate)) return candidate;
+            if (/^(file|https?):/i.test(candidate)) return candidate;
+            if (looksLikePath(candidate)) return candidate;
+            if (IMAGE_EXT_RE.test(candidate)) return candidate;
+        }
+    }
+    return "";
+}
+
+async function applyTransfer(node, data) {
+    const state = node._agsoft;
+    const now = Date.now();
+    if (now - state.lastDropAt < DROP_GUARD_MS) return;
+    state.lastDropAt = now;
+    // Ссылка важнее файла: браузер подкладывает пережатую копию картинки.
+    // The link wins over files: the browser synthesizes a re-encoded copy.
+    const link = pickLink(data.texts);
+    if (link) {
+        await applyLink(node, link);
+        return;
+    }
+    if (data.files.length) {
+        await uploadFile(node, data.files[0]);
+        return;
+    }
+    showHint(node, "nothing to load / нечего загружать");
+}
+
+
+// =============================================================================
+// ОКНО ЭСКИЗОВ: виртуальная сетка / THUMBNAIL PICKER: virtual grid
+// =============================================================================
+function closeThumbnails() {
+    if (!thumbDialog) return;
+    const dialog = thumbDialog;
+    thumbDialog = null;
+    document.removeEventListener("keydown", dialog.onKey, true);
+    if (dialog.observer) dialog.observer.disconnect();
+    if (dialog.raf) cancelAnimationFrame(dialog.raf);
+    if (dialog.searchTimer) clearTimeout(dialog.searchTimer);
+    dialog.cards.clear();
+    dialog.overlay.remove();
+}
+
+function createThumbCard(dialog, index) {
+    const item = dialog.view[index];
+    const full = fullName(item);
+    const card = document.createElement("div");
+    card.className = "agsoft-thumbs-card";
+    if (full === dialog.current) card.classList.add("agsoft-selected");
+    if (index === dialog.cursor) card.classList.add("agsoft-cursor");
+    card.title = full;
+    card.style.left = `${(index % dialog.cols) * dialog.rowH}px`;
+    card.style.top = `${Math.floor(index / dialog.cols) * dialog.rowH}px`;
+    card.style.width = `${dialog.cell}px`;
+    card.style.height = `${dialog.cell}px`;
+
+    const img = document.createElement("img");
+    img.loading = "lazy";
+    img.decoding = "async";
+    img.alt = item.name;
+    img.src = thumbUrl(item, dialog.px, dialog.kind);
+    img.onerror = () => img.remove();
+
+    const name = document.createElement("div");
+    name.className = "agsoft-thumbs-name";
+    name.textContent = item.name;
+
+    card.appendChild(img);
+    card.appendChild(name);
+    card.onclick = () => pickThumbIndex(index);
+    return card;
+}
+
+function renderThumbWindow() {
+    const dialog = thumbDialog;
+    if (!dialog || !dialog.view.length) return;
+    const rows = Math.ceil(dialog.view.length / dialog.cols);
+    const top = dialog.viewport.scrollTop;
+    const height = dialog.viewport.clientHeight;
+    const first = Math.max(0, Math.floor(top / dialog.rowH) - THUMB_OVERSCAN);
+    const last = Math.min(rows, Math.ceil((top + height) / dialog.rowH) + THUMB_OVERSCAN);
+
+    const needed = new Set();
+    for (let row = first; row < last; row++) {
+        for (let col = 0; col < dialog.cols; col++) {
+            const index = row * dialog.cols + col;
+            if (index >= dialog.view.length) break;
+            needed.add(index);
+        }
+    }
+    for (const [index, card] of dialog.cards) {
+        if (needed.has(index)) continue;
+        card.remove();
+        dialog.cards.delete(index);
+    }
+    for (const index of needed) {
+        if (dialog.cards.has(index)) continue;
+        const card = createThumbCard(dialog, index);
+        dialog.sizer.appendChild(card);
+        dialog.cards.set(index, card);
+    }
+    for (const [index, card] of dialog.cards) {
+        card.classList.toggle("agsoft-cursor", index === dialog.cursor);
+    }
+}
+
+function layoutThumbnails() {
+    const dialog = thumbDialog;
+    if (!dialog) return;
+    const wanted = num(dialog.size.value, 140);
+    const width = Math.max(dialog.viewport.clientWidth, wanted);
+    const cols = Math.max(1, Math.floor((width + THUMB_GAP) / (wanted + THUMB_GAP)));
+    dialog.cols = cols;
+    dialog.cell = Math.max(48, Math.floor((width - THUMB_GAP * (cols - 1)) / cols));
+    dialog.rowH = dialog.cell + THUMB_GAP;
+    // Три фиксированных размера эскизов дают максимум попаданий в кэш.
+    // Three fixed thumbnail sizes maximize cache hits.
+    dialog.px = dialog.cell <= 130 ? 128 : (dialog.cell <= 260 ? 256 : 384);
+
+    const rows = Math.ceil(dialog.view.length / cols);
+    dialog.sizer.style.height = `${Math.max(0, rows * dialog.rowH - THUMB_GAP)}px`;
+    dialog.empty.style.display = dialog.view.length ? "none" : "block";
+    for (const card of dialog.cards.values()) {
+        card.remove();
+    }
+    dialog.cards.clear();
+    renderThumbWindow();
+}
+
+function scrollThumbIntoView(index) {
+    const dialog = thumbDialog;
+    if (!dialog) return;
+    const top = Math.floor(index / dialog.cols) * dialog.rowH;
+    const viewTop = dialog.viewport.scrollTop;
+    const viewBottom = viewTop + dialog.viewport.clientHeight;
+    if (top < viewTop) {
+        dialog.viewport.scrollTop = top;
+    } else if (top + dialog.cell > viewBottom) {
+        dialog.viewport.scrollTop = top + dialog.cell - dialog.viewport.clientHeight;
+    }
+    renderThumbWindow();
+}
+
+function centerThumbOn(index) {
+    const dialog = thumbDialog;
+    if (!dialog) return;
+    const row = Math.floor(index / dialog.cols);
+    const target = row * dialog.rowH - (dialog.viewport.clientHeight - dialog.cell) / 2;
+    dialog.viewport.scrollTop = Math.max(0, target);
+    renderThumbWindow();
+}
+
+function moveThumbCursor(delta) {
+    const dialog = thumbDialog;
+    if (!dialog || !dialog.view.length) return;
+    const next = Math.min(dialog.view.length - 1, Math.max(0, dialog.cursor + delta));
+    if (next === dialog.cursor) return;
+    dialog.cursor = next;
+    scrollThumbIntoView(next);
+}
+
+function pickThumbIndex(index) {
+    const dialog = thumbDialog;
+    if (!dialog) return;
+    const item = dialog.view[index];
+    if (!item) return;
+    const node = dialog.node;
+    const kind = dialog.kind;
+    const full = fullName(item);
+    closeThumbnails();
+    if (kind === "output") {
+        // Файл из output копируется в input: только так он станет источником.
+        // An output file is copied into input: that is how it becomes a source.
+        importServerFile(node, { filename: item.name, subfolder: item.subfolder, type: "output" });
+        return;
+    }
+    selectImage(node, full, null);
+}
+
+function filterThumbnails() {
+    const dialog = thumbDialog;
+    if (!dialog) return;
+    const term = dialog.search.value.trim().toLowerCase();
+    const folder = dialog.folder.value;
+    dialog.current = dialog.kind === "input" ? String(widgetValue(dialog.node, "image") || "") : "";
+    dialog.view = dialog.files.filter((item) => {
+        if (folder !== "*" && item.subfolder !== folder) return false;
+        if (!term) return true;
+        return fullName(item).toLowerCase().includes(term);
+    });
+    dialog.count.textContent = `${dialog.view.length} / ${dialog.files.length}`;
+    const index = dialog.current
+        ? dialog.view.findIndex((item) => fullName(item) === dialog.current)
+        : -1;
+    dialog.cursor = index >= 0 ? index : 0;
+    dialog.viewport.scrollTop = 0;
+    layoutThumbnails();
+    // Окно должно открываться на выбранной картинке, а не в начале списка.
+    // The window must open on the selected picture, not at the list start.
+    if (index >= 0) centerThumbOn(index);
+}
+
+async function loadThumbnails(force) {
+    const dialog = thumbDialog;
+    if (!dialog) return;
+    dialog.count.textContent = "…";
+    try {
+        const query = `type=${dialog.kind}&force=${force ? 1 : 0}`;
+        const response = await api.fetchApi(`/agsoft/image_mask_resize_thumbs?${query}`);
+        if (response.status !== 200) throw new Error(`status ${response.status}`);
+        const data = await response.json();
+        if (thumbDialog !== dialog) return;
+        dialog.files = Array.isArray(data.files) ? data.files : [];
+        const folders = Array.isArray(data.folders) ? data.folders : [];
+        const selected = dialog.folder.value || "*";
+        dialog.folder.replaceChildren();
+        const all = document.createElement("option");
+        all.value = "*";
+        all.textContent = "all folders / все папки";
+        dialog.folder.appendChild(all);
+        for (const name of folders) {
+            const option = document.createElement("option");
+            option.value = name;
+            option.textContent = name;
+            dialog.folder.appendChild(option);
+        }
+        dialog.folder.value = folders.includes(selected) ? selected : "*";
+        filterThumbnails();
+    } catch (error) {
+        console.warn("[AGSoft Load Image & Mask Resize] thumbnails failed:", error);
+        if (thumbDialog === dialog) dialog.count.textContent = "error / ошибка";
+    }
+}
+
+function setPickerKind(kind) {
+    const dialog = thumbDialog;
+    if (!dialog || dialog.kind === kind) return;
+    dialog.kind = kind;
+    dialog.files = [];
+    dialog.view = [];
+    dialog.cursor = 0;
+    dialog.folder.value = "*";
+    dialog.inputTab.classList.toggle("agsoft-active", kind === "input");
+    dialog.outputTab.classList.toggle("agsoft-active", kind === "output");
+    dialog.title.textContent = kind === "output"
+        ? "🖼 Output thumbnails / Эскизы output"
+        : "🖼 Input thumbnails / Эскизы input";
+    dialog.note.textContent = kind === "output"
+        ? "output → copy into input / output → копия в input"
+        : "arrows + Enter / стрелки + Enter";
+    loadThumbnails(false);
+}
+
+function pickerKeyDown(event) {
+    const dialog = thumbDialog;
+    if (!dialog) return;
+    if (event.key === "Escape") {
+        event.stopPropagation();
+        closeThumbnails();
+        return;
+    }
+    const inSearch = document.activeElement === dialog.search;
+    if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        pickThumbIndex(dialog.cursor);
+        return;
+    }
+    // В поле поиска стрелки влево/вправо двигают каретку текста.
+    // Inside the search field left/right move the text caret.
+    if (inSearch && (event.key === "ArrowLeft" || event.key === "ArrowRight")) return;
+    const deltas = {
+        ArrowLeft: -1,
+        ArrowRight: 1,
+        ArrowUp: -dialog.cols,
+        ArrowDown: dialog.cols,
+    };
+    const delta = deltas[event.key];
+    if (delta === undefined) return;
+    event.preventDefault();
+    event.stopPropagation();
+    moveThumbCursor(delta);
+}
+
+function openThumbnails(node) {
+    if (thumbDialog && thumbDialog.node === node && Date.now() - thumbDialog.openedAt < PICKER_GUARD_MS) {
+        return true;
+    }
+    closeThumbnails();
+    try {
+        const overlay = document.createElement("div");
+        overlay.className = "agsoft-thumbs-overlay";
+        const panel = document.createElement("div");
+        panel.className = "agsoft-thumbs-panel";
+        const head = document.createElement("div");
+        head.className = "agsoft-thumbs-head";
+        const foot = document.createElement("div");
+        foot.className = "agsoft-thumbs-foot";
+
+        const title = document.createElement("div");
+        title.className = "agsoft-thumbs-title agsoft-thumbs-spacer";
+        title.textContent = "🖼 Input thumbnails / Эскизы input";
+
+        const count = document.createElement("div");
+        count.className = "agsoft-thumbs-title";
+        count.textContent = "…";
+
+        const search = document.createElement("input");
+        search.className = "agsoft-thumbs-field";
+        search.type = "text";
+        search.placeholder = "search / поиск";
+
+        const folder = document.createElement("select");
+        folder.className = "agsoft-thumbs-field";
+
+        const size = document.createElement("input");
+        size.className = "agsoft-thumbs-field";
+        size.type = "range";
+        size.min = "90";
+        size.max = "260";
+        size.step = "10";
+        size.value = "140";
+        size.title = "Thumbnail size / Размер эскизов";
+
+        const refresh = document.createElement("button");
+        refresh.className = "agsoft-resize-btn";
+        refresh.textContent = "⟳";
+        refresh.title = "Refresh / Обновить";
+
+        const close = document.createElement("button");
+        close.className = "agsoft-resize-btn";
+        close.textContent = "✕";
+        close.title = "Close / Закрыть";
+
+        const inputTab = document.createElement("button");
+        inputTab.className = "agsoft-thumbs-tab agsoft-active";
+        inputTab.textContent = "📥 input";
+        inputTab.title = "Input folder / Папка input";
+
+        const outputTab = document.createElement("button");
+        outputTab.className = "agsoft-thumbs-tab";
+        outputTab.textContent = "📤 output";
+        outputTab.title = "Output folder / Папка output";
+
+        const note = document.createElement("div");
+        note.className = "agsoft-thumbs-note";
+        note.textContent = "arrows + Enter / стрелки + Enter";
+
+        const viewport = document.createElement("div");
+        viewport.className = "agsoft-thumbs-viewport";
+        const sizer = document.createElement("div");
+        sizer.className = "agsoft-thumbs-sizer";
+        const empty = document.createElement("div");
+        empty.className = "agsoft-thumbs-empty";
+        empty.textContent = "no images / нет изображений";
+        empty.style.display = "none";
+        viewport.appendChild(sizer);
+        viewport.appendChild(empty);
+
+        head.appendChild(title);
+        head.appendChild(count);
+        head.appendChild(search);
+        head.appendChild(folder);
+        head.appendChild(size);
+        head.appendChild(refresh);
+        head.appendChild(close);
+        foot.appendChild(inputTab);
+        foot.appendChild(outputTab);
+        foot.appendChild(note);
+        panel.appendChild(head);
+        panel.appendChild(viewport);
+        panel.appendChild(foot);
+        overlay.appendChild(panel);
+
+        document.addEventListener("keydown", pickerKeyDown, true);
+        overlay.addEventListener("pointerdown", (event) => {
+            event.stopPropagation();
+            if (event.target === overlay) closeThumbnails();
+        });
+
+        thumbDialog = {
+            node,
+            overlay,
+            viewport,
+            sizer,
+            empty,
+            search,
+            folder,
+            size,
+            count,
+            title,
+            note,
+            inputTab,
+            outputTab,
+            onKey: pickerKeyDown,
+            kind: "input",
+            files: [],
+            view: [],
+            cards: new Map(),
+            cols: 1,
+            cell: 140,
+            rowH: 148,
+            px: 256,
+            current: "",
+            cursor: 0,
+            raf: 0,
+            searchTimer: null,
+            observer: null,
+            openedAt: Date.now(),
+        };
+        const dialog = thumbDialog;
+
+        viewport.addEventListener("scroll", () => {
+            if (dialog.raf) return;
+            dialog.raf = requestAnimationFrame(() => {
+                dialog.raf = 0;
+                renderThumbWindow();
+            });
+        });
+        search.oninput = () => {
+            if (dialog.searchTimer) clearTimeout(dialog.searchTimer);
+            dialog.searchTimer = setTimeout(() => {
+                dialog.searchTimer = null;
+                filterThumbnails();
+            }, SEARCH_DEBOUNCE_MS);
+        };
+        folder.onchange = () => filterThumbnails();
+        size.oninput = () => layoutThumbnails();
+        refresh.onclick = () => loadThumbnails(true);
+        close.onclick = () => closeThumbnails();
+        inputTab.onclick = () => setPickerKind("input");
+        outputTab.onclick = () => setPickerKind("output");
+
+        document.body.appendChild(overlay);
+        if (typeof ResizeObserver === "function") {
+            dialog.observer = new ResizeObserver(() => layoutThumbnails());
+            dialog.observer.observe(viewport);
+        }
+        search.focus();
+        layoutThumbnails();
+        loadThumbnails(false);
+        return true;
+    } catch (error) {
+        console.warn("[AGSoft Load Image & Mask Resize] picker failed:", error);
+        closeThumbnails();
+        return false;
+    }
+}
+
+
+// =============================================================================
+// ВИДЖЕТ image: стрелки по краям, эскизы по центру
+// image widget: arrows at the edges, picker in the middle
+// =============================================================================
+function comboLocalX(node, options) {
+    const canvas = app.canvas;
+    const event = options && options.e ? options.e : (options && options.event ? options.event : options);
+    if (canvas && event && typeof event.clientX === "number" &&
+        typeof canvas.convertEventToCanvasOffset === "function") {
+        const offset = canvas.convertEventToCanvasOffset(event);
+        return offset[0] - node.pos[0];
+    }
+    if (canvas && canvas.graph_mouse) {
+        return canvas.graph_mouse[0] - node.pos[0];
+    }
+    return node.size[0] / 2;
+}
+
+function stepComboValue(node, widget, direction) {
+    const options = widget.options || {};
+    const values = Array.isArray(options.values) ? options.values : widget.values;
+    if (!Array.isArray(values) || !values.length) return;
+    const current = values.indexOf(widget.value);
+    const start = current < 0 ? 0 : current;
+    const index = (start + direction + values.length) % values.length;
+    const next = values[index];
+    widget.value = next;
+    if (widget.callback) widget.callback(next, app.canvas, node);
+    node.setDirtyCanvas(true, true);
+}
+
+function handleImageClick(node, widget, localX) {
+    const now = Date.now();
+    if (now - num(widget._agsoftClickAt, 0) < CLICK_GUARD_MS) return true;
+    widget._agsoftClickAt = now;
+    if (localX < COMBO_ARROW_ZONE) {
+        stepComboValue(node, widget, -1);
+        return true;
+    }
+    if (localX > node.size[0] - COMBO_ARROW_ZONE) {
+        stepComboValue(node, widget, 1);
+        return true;
+    }
+    return openThumbnails(node);
+}
+
+function hookImagePicker(node) {
+    const widget = findWidget(node, "image");
+    if (!widget || widget._agsoftPickerHooked) return;
+    widget._agsoftPickerHooked = true;
+    const previousClick = widget.onClick;
+    widget.onClick = function(options) {
+        if (handleImageClick(node, widget, comboLocalX(node, options))) return true;
+        return previousClick ? previousClick.apply(this, arguments) : false;
+    };
+    const previousMouse = widget.mouse;
+    widget.mouse = function(event, pos) {
+        const localX = Array.isArray(pos) ? num(pos[0], 0) : comboLocalX(node, event);
+        if (handleImageClick(node, widget, localX)) return true;
+        return previousMouse ? previousMouse.apply(this, arguments) : false;
+    };
+}
+
+
+// =============================================================================
+// ВИДЖЕТЫ ПРЕВЬЮ И СТАТУС-БАРА / PREVIEW AND STATUS BAR WIDGETS
+// =============================================================================
 function createPreview(node) {
     const state = node._agsoft;
     const wrap = document.createElement("div");
@@ -917,12 +1705,7 @@ function createPreview(node) {
         event.preventDefault();
         event.stopPropagation();
         wrap.classList.remove("agsoft-drop");
-        const now = Date.now();
-        if (now - state.lastDropAt < DROP_GUARD_MS) return;
-        state.lastDropAt = now;
-        const transfer = event.dataTransfer;
-        const file = transfer && transfer.files && transfer.files.length ? transfer.files[0] : null;
-        if (file) uploadFile(node, file);
+        applyTransfer(node, readTransfer(event.dataTransfer));
     });
 
     const widget = node.addDOMWidget("agsoft_preview", "agsoft_preview", wrap, {
@@ -942,10 +1725,6 @@ function createPreview(node) {
     state.previewWidget = widget;
 }
 
-
-// =============================================================================
-// СТАТУС-БАР / STATUS BAR
-// =============================================================================
 function createStatusBar(node) {
     const state = node._agsoft;
     const bar = document.createElement("div");
@@ -956,6 +1735,11 @@ function createStatusBar(node) {
     const text = document.createElement("div");
     text.className = "agsoft-resize-status-text";
     text.textContent = "— × — · — MP";
+
+    const thumbsBtn = document.createElement("button");
+    thumbsBtn.className = "agsoft-resize-btn";
+    thumbsBtn.textContent = "🖼";
+    thumbsBtn.title = "Thumbnails / Эскизы";
 
     const uploadBtn = document.createElement("button");
     uploadBtn.className = "agsoft-resize-btn";
@@ -972,12 +1756,14 @@ function createStatusBar(node) {
     fileInput.style.display = "none";
 
     bar.appendChild(text);
+    bar.appendChild(thumbsBtn);
     bar.appendChild(uploadBtn);
     bar.appendChild(toggleBtn);
     bar.appendChild(fileInput);
     bar.addEventListener("pointerdown", (event) => event.stopPropagation());
     attachNodeMenu(node, bar);
 
+    thumbsBtn.onclick = () => openThumbnails(node);
     uploadBtn.onclick = () => fileInput.click();
     fileInput.onchange = () => {
         const file = fileInput.files && fileInput.files.length ? fileInput.files[0] : null;
@@ -1033,10 +1819,6 @@ function updateStatus(node) {
         `${out.w}×${out.h} · ${megapixels(out)} MP${mark}`;
 }
 
-
-// =============================================================================
-// ТЕМИЗАЦИЯ / THEMING
-// =============================================================================
 function applyTheme(node) {
     const state = node._agsoft;
     if (!state || !state.previewEl || !state.statusEl) return;
@@ -1051,7 +1833,7 @@ function applyTheme(node) {
 
 
 // =============================================================================
-// ХУКИ ВИДЖЕТОВ И НОДЫ / WIDGET AND NODE HOOKS
+// ХУКИ НОДЫ / NODE HOOKS
 // =============================================================================
 function onWidgetChanged(node, widget, value) {
     const state = node._agsoft;
@@ -1086,10 +1868,6 @@ function hookNode(node) {
         return [Math.max(base[0], MIN_NODE_WIDTH), base[1] + MIN_PREVIEW_AREA + PREVIEW_BOTTOM_GAP];
     };
 
-    // Штатная отрисовка картинки ядром не нужна: кадр рисует наш виджет.
-    // Хук вызывается каждый кадр, поэтому ловит и поздно созданный виджет.
-    // The core picture drawing is not needed: our widget draws the frame.
-    // The hook runs every frame, so a late-created widget is caught as well.
     node.onDrawBackground = function(ctx) {
         suppressCorePreview(node);
         watchSourceChange(node);
@@ -1112,12 +1890,11 @@ function hookNode(node) {
         }
         const state = node._agsoft;
         state.signature = "";
+        state.stamp = "";
         state.comboWatch = String(widgetValue(node, "image") || "");
         state.restoring = true;
         applyVisibility(node);
         state.restoring = false;
-        // Сохранённый размер ноды важнее значения по умолчанию.
-        // The saved node size wins over the default area.
         syncPreviewBox(node);
         layoutPreviewCanvas(node);
         showComboPreview(node);
@@ -1135,10 +1912,19 @@ function hookNode(node) {
     const baseOnDrawForeground = node.onDrawForeground;
     node.onDrawForeground = function(ctx) {
         if (baseOnDrawForeground) baseOnDrawForeground.apply(this, arguments);
+        const state = node._agsoft;
         const key = `${node.color || ""}|${node.bgcolor || ""}`;
-        if (key !== node._agsoft.themeKey) {
-            node._agsoft.themeKey = key;
+        if (key !== state.themeKey) {
+            state.themeKey = key;
             applyTheme(node);
+        }
+        if (state.dropHover && ctx) {
+            ctx.save();
+            ctx.strokeStyle = "#7fd4ff";
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 4]);
+            ctx.strokeRect(1, 1, node.size[0] - 2, node.size[1] - 2);
+            ctx.restore();
         }
     };
 
@@ -1147,7 +1933,73 @@ function hookNode(node) {
         if (baseOnRemoved) baseOnRemoved.apply(this, arguments);
         const state = node._agsoft;
         if (state && state.pathTimer) clearTimeout(state.pathTimer);
+        if (thumbDialog && thumbDialog.node === node) closeThumbnails();
     };
+}
+
+
+// =============================================================================
+// DROP НА ВСЮ НОДУ / DROP OVER THE WHOLE NODE
+// =============================================================================
+function nodeAtPointer(event) {
+    const canvas = app.canvas;
+    if (!canvas || !app.graph) return null;
+    if (typeof canvas.convertEventToCanvasOffset !== "function") return null;
+    const offset = canvas.convertEventToCanvasOffset(event);
+    const nodes = app.graph._nodes || [];
+    for (let i = nodes.length - 1; i >= 0; i--) {
+        const node = nodes[i];
+        if (node.comfyClass !== NODE_CLASS || !node._agsoft) continue;
+        if (offset[0] >= node.pos[0] && offset[0] <= node.pos[0] + node.size[0] &&
+            offset[1] >= node.pos[1] && offset[1] <= node.pos[1] + node.size[1]) {
+            return node;
+        }
+    }
+    return null;
+}
+
+function clearDropHover(except) {
+    const nodes = (app.graph && app.graph._nodes) || [];
+    for (const node of nodes) {
+        if (node.comfyClass !== NODE_CLASS || !node._agsoft) continue;
+        if (node === except || !node._agsoft.dropHover) continue;
+        node._agsoft.dropHover = false;
+        node.setDirtyCanvas(true, false);
+    }
+}
+
+function isGraphCanvasEvent(event) {
+    return !!(app.canvas && app.canvas.canvas && event.target === app.canvas.canvas);
+}
+
+function onCanvasDragOver(event) {
+    if (!isGraphCanvasEvent(event)) return;
+    const node = nodeAtPointer(event);
+    clearDropHover(node);
+    if (!node) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!node._agsoft.dropHover) {
+        node._agsoft.dropHover = true;
+        node.setDirtyCanvas(true, false);
+    }
+}
+
+function onCanvasDragLeave(event) {
+    if (!isGraphCanvasEvent(event)) return;
+    clearDropHover(null);
+}
+
+function onCanvasDrop(event) {
+    if (!isGraphCanvasEvent(event)) return;
+    const node = nodeAtPointer(event);
+    clearDropHover(null);
+    if (!node) return;
+    const data = readTransfer(event.dataTransfer);
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    applyTransfer(node, data);
 }
 
 
@@ -1176,6 +2028,9 @@ app.registerExtension({
                 if (node.comfyClass === NODE_CLASS && node._agsoft) refreshState(node);
             }
         });
+        document.addEventListener("dragover", onCanvasDragOver, true);
+        document.addEventListener("dragleave", onCanvasDragLeave, true);
+        document.addEventListener("drop", onCanvasDrop, true);
     },
 
     async nodeCreated(node) {
@@ -1202,6 +2057,7 @@ app.registerExtension({
             lastDropAt: 0,
             pendingUrl: "",
             restoring: false,
+            dropHover: false,
             baseComputeSize: node.computeSize,
             sourceImg: null,
             frame: null,
@@ -1210,6 +2066,7 @@ app.registerExtension({
         createPreview(node);
         createStatusBar(node);
         hookWidgets(node);
+        hookImagePicker(node);
         hookNode(node);
         applyTheme(node);
         applyVisibility(node);
