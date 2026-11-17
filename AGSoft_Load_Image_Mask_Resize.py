@@ -96,7 +96,7 @@ except Exception:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# print("[AGSoft Load Image & Mask Resize] v11.16 loaded (input/output thumbnail picker + combo arrows)")
+# print("[AGSoft Load Image & Mask Resize] v11.17 loaded (input/output thumbnail picker + combo arrows+thumbnail + original filename characters)")
 
 # =============================================================================
 # Префикс временных превью-копий в папке input.
@@ -367,10 +367,15 @@ def _agsoft_cleanup_previews(folder: str, prefix: str, keep: str) -> None:
 
 
 def _agsoft_safe_name(name: str) -> str:
-    """Имя файла без путей и служебных символов. / File name without paths or unsafe chars."""
+    """
+    Только имя файла, без путей и управляющих символов. Символы вроде + = # @
+    остаются как есть: иначе файл не находится на диске под своим именем.
+    File name only, without paths or control characters. Characters like + = # @
+    are kept as is: otherwise the file is not found on disk under its own name.
+    """
     base = os.path.basename(str(name).replace("\\", "/"))
-    cleaned = "".join(ch for ch in base if ch.isalnum() or ch in " ._-()[]").strip()
-    return (cleaned or "image.png")[:120]
+    cleaned = "".join(ch for ch in base if ch.isprintable()).strip()
+    return cleaned or "image.png"
 
 
 def _agsoft_root_for_type(kind: str) -> str:
