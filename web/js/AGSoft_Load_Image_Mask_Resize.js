@@ -61,7 +61,7 @@ AGSoft_Load_Image_Mask_Resize.js
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
-console.log("[AGSoft Load Image & Mask Resize] JS extension loaded v11.16 (input/output picker + arrows)");
+console.log("[AGSoft Load Image & Mask Resize] JS extension loaded v11.17 (input/output picker + arrows + original filename characters)");
 
 const NODE_CLASS = "AGSoft_Load_Image_Mask_Resize";
 const STYLE_ID = "agsoft-load-image-mask-resize-style";
