@@ -88,7 +88,7 @@ from nodes import common_ksampler
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# print("[AGSoft Minimax H3 Latent Upscaler] v11.04 loaded (keyframe retarget in both nodes)")
+# print("[AGSoft Minimax H3 Latent Upscaler] v11.05 loaded (target clamped to source, no hard fail)")
 
 # Регистрация папки моделей / Model folder registration
 _LATENT_UPSCALE_FOLDER = "latent_upscale_models"
@@ -528,8 +528,17 @@ def _upscale_video(src, model_name, mode, scale, width, height, megapixels, alig
     w_out = max(1, int(w_fin // ds))
     h_out = max(1, int(h_fin // ds))
     if w_out < w_in or h_out < h_in:
-        raise ValueError("This model only supports upscaling: target is smaller than source / "
-                         "модель поддерживает только апскейл: цель меньше источника")
+        # Сетка с keep_proportion могла выбрать пару меньше источника по оси:
+        # поднимаем ось до источника вместо падения прогона.
+        # The keep_proportion grid may pick a pair below the source on one axis:
+        # raise that axis to the source instead of failing the run.
+        w_fix, h_fix = max(w_out, w_in), max(h_out, h_in)
+        logger.warning("[AGSoft MinimaxH3] target %dx%d below source %dx%d, clamped to %dx%d / "
+                       "цель %dx%d меньше источника %dx%d, поднята до %dx%d",
+                       w_out, h_out, w_in, h_in, w_fix, h_fix,
+                       w_out, h_out, w_in, h_in, w_fix, h_fix)
+        w_out, h_out = w_fix, h_fix
+        eff = ((w_out / w_in) + (h_out / h_in)) / 2.0
     if w_out == w_in and h_out == h_in:
         logger.info("[AGSoft MinimaxH3] target equals source, video latent returned unchanged / "
                     "цель равна источнику, видеолатент возвращён без изменений")
