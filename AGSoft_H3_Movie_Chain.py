@@ -11,12 +11,12 @@ AGSoft_H3_Movie_Chain.py
 размер кадра (калькулятор Preset/Custom/Megapixels, кратность 32), fps фильма,
 старт исходной дорожки и полный набор референсов (9 image, 3 video с парными
 дорожками, 3 audio). Референсы кодируются один раз и едут по шине chain_base
-вместе с ресурсами, нормализованной волной источника, курсором аудио и
-накопленными сырыми кусками. Шина chain_advanced везёт параметры семплирования
-и декода (steps, cfg, sampler, scheduler, denoise, decode_mode, tile_size,
-overlap, temporal_size, temporal_overlap); у Link её вход опционален:
-подключил — виджеты схлопываются и сцена живёт на значениях шины, отключил —
-правишь сцену вручную.
+вместе с ресурсами, нормализованной волной источника, курсором аудио,
+накопленными сырыми кусками и эталоном палитры фильма. Шина chain_advanced
+везёт параметры семплирования и декода (steps, cfg, sampler, scheduler,
+denoise, decode_mode, tile_size, overlap, temporal_size, temporal_overlap);
+у Link её вход опционален: подключил — виджеты схлопываются и сцена живёт на
+значениях шины, отключил — правишь сцену вручную.
 Аудио сцены подаётся в модель тремя независимыми каналами, чтобы липсинк
 выживал при любой обвязке: (1) кусок source_audio сцены входит в minimax_refs
 этой сцены отдельным аудио-рефом — внешние ноды гайдов его не трогают;
@@ -29,8 +29,17 @@ ref_audio_0 остаётся чисто пользовательским вхо�
 кондиционирование поверх презентации референсов + аудио-реф сцены → ключевые
 кадры minimax_keyframes → встроенное семплирование (логика 🧩KSampler Plus,
 кэш по ноде: смена виджетов декода не пересемплирует, только передекодирует) →
-декод VAE tiled/standard/off с подробным логом плиток и VRAM → срезы
-продолжения last_frame (самый последний кадр) и context_images (последние N).
+декод VAE tiled/standard/off с подробным логом плиток и VRAM → приведение
+палитры сцены к замороженному эталону → срезы продолжения last_frame (самый
+последний кадр) и context_images (последние N).
+Цвет: цикл латент-декод-пиксели-ресайз-энкод не идемпотентен, и без коррекции
+каждая сцена немного «пережаривается». Приведение среднего сцены к среднему
+ОДНОГО кадра предыдущей сцены давало храповик: последний кадр ярче среднего,
+сдвиг копился от звена к звену. Поэтому эталон считается один раз по ВСЕМ
+кадрам сцены 1 (color_ref) и замораживается в шине: каждое звено ровняется под
+него и не перезаписывает его, накапливаться нечему. Виджет color_stabilize:
+mean_std — статистики по всей сцене, per_frame — по каждому кадру, off — сырой
+декод. Рисунок эталона не переносится, двоения силуэтов не возникает.
 Аудио: source_audio режется по сценам встык от source_audio_start_seconds
 (Master) и от курсора шины (Link); source_audio_cut отдаёт сырой точный кусок
 сцены для сведения, stitched_audio собирает куски вверх по цепи (на последнем
@@ -41,9 +50,10 @@ audio_vae, frame size (Preset/Custom/Megapixels calculator, multiples of 32),
 movie fps, source track start and the full reference set (9 image, 3 video
 with paired soundtracks, 3 audio). References encode once and travel
 chain_base together with resources, the normalized source wave, the audio
-cursor and the accumulated raw pieces. The chain_advanced bus carries sampling
-and decode params; on Link its input is optional: linked — widgets collapse
-and the scene runs on bus values, unlinked — the scene is tuned manually.
+cursor, the accumulated raw pieces and the movie palette reference. The
+chain_advanced bus carries sampling and decode params; on Link its input is
+optional: linked — widgets collapse and the scene runs on bus values,
+unlinked — the scene is tuned manually.
 Scene audio reaches the model through three independent channels so lip sync
 survives any wiring: (1) the scene source_audio piece enters this scene's
 minimax_refs as a standalone audio ref — external guide nodes never touch it;
@@ -56,8 +66,18 @@ Every scene passes one pipeline: frame calculator (17N+5) → Ref2V
 conditioning over the reference presentation plus the scene audio ref →
 minimax_keyframes keyframes → built-in sampling (🧩KSampler Plus logic,
 per-node cache: decode widget changes re-decode only, no re-sampling) → VAE
-decode tiled/standard/off with verbose tile and VRAM log → continuation
-slices last_frame (the very last frame) and context_images (last N).
+decode tiled/standard/off with verbose tile and VRAM log → palette matching
+against the frozen reference → continuation slices last_frame (the very last
+frame) and context_images (last N).
+Color: the latent-decode-pixels-resize-encode loop is not idempotent, so
+without correction every scene gets slightly overcooked. Matching the scene
+mean to the mean of ONE previous-scene frame created a ratchet: the last frame
+is brighter than the average, so the shift accumulated link after link. The
+reference is therefore computed once over ALL scene-1 frames (color_ref) and
+frozen in the bus: every link matches it and never overwrites it, so nothing
+can accumulate. The color_stabilize widget: mean_std — whole-scene stats,
+per_frame — per-frame stats, off — raw decode. The reference picture is never
+transferred, so silhouette ghosting cannot appear.
 Audio: source_audio is cut per scene contiguously from
 source_audio_start_seconds (Master) and from the bus cursor (Link);
 source_audio_cut gives the raw exact scene piece for muxing, stitched_audio
@@ -66,10 +86,10 @@ the model-generated soundtrack.
 Возможности / Features:
 ⚡ Только Ref2V: без подключённых рефов сцена генерируется как text-to-video
 Ref2V only: with no refs linked the scene generates as text-to-video
-⚡ Две шины: chain_base (ресурсы, fps, рефы, курсор и куски аудио) и
-chain_advanced (семплинг и декод); у Link chain_advanced опциональна
-Two buses: chain_base (resources, fps, refs, audio cursor and pieces) and
-chain_advanced (sampling and decode); on Link chain_advanced is optional
+⚡ Две шины: chain_base (ресурсы, fps, рефы, курсор, куски аудио, эталон
+палитры) и chain_advanced (семплинг и декод); у Link chain_advanced опциональна
+Two buses: chain_base (resources, fps, refs, cursor, audio pieces, palette
+reference) and chain_advanced (sampling and decode); Link's is optional
 ⚡ Референсы кодируются один раз на Master и переиспользуются всеми сценами
 References encode once on Master and are reused by every scene
 ⚡ Трёхканальное аудио сцены: аудио-реф сцены в minimax_refs, аудио-гайд
@@ -78,6 +98,10 @@ References encode once on Master and are reused by every scene
 Three-channel scene audio: scene audio ref in minimax_refs, frame-0 audio
 guide with index merge, track cuts in guides — lip sync survives both
 internal and external guide wiring
+⚡ Замороженный эталон палитры сцены 1: mean_std / per_frame / off — дрейф
+не копится от звена к звену, рисунок не переносится, двоения нет
+Frozen scene-1 palette reference: mean_std / per_frame / off — drift cannot
+accumulate link after link, no picture transfer, no ghosting
 ⚡ Встроенный семплер и декод с кэшем по ноде и логом плиток/VRAM как в
 🧩KSampler Plus; без model нода отдаёт conditioning и пустой латент
 Built-in sampler and decode with per-node cache and tile/VRAM log like
@@ -89,11 +113,11 @@ Continuation slices: last_frame (the very last frame), context_images
 ⚡ Диагностический лог ключевых кадров сцены: индексы и наличие image/audio
 Diagnostic log of scene keyframes: indices and image/audio presence
 ⚡ UI: виджеты сверху (калькулятор, fps над seed, семплер, декод,
-ref_image_size, context_frames, группа AddGuide), prompt внизу; живая
-инфострока формата Base только на Master, между виджетами и prompt
+ref_image_size, context_frames, color_stabilize, группа AddGuide), prompt
+внизу; живая инфострока формата Base только на Master, перед prompt
 UI: widgets on top (calculator, fps above seed, sampler, decode,
-ref_image_size, context_frames, AddGuide group), prompt at the bottom;
-the Base-format live line on Master only, between widgets and prompt
+ref_image_size, context_frames, color_stabilize, AddGuide group), prompt at
+the bottom; the Base-format live line on Master only, before prompt
 ⚡ Автоскрытие: виджеты калькулятора по режимам, пары секунд/кадры гайдов по
 счётчику и position_mode, виджеты семплера/декода на Link при подключённой
 chain_advanced; динамические сокеты рефов (подключено+1) и гайдов
@@ -119,7 +143,7 @@ from nodes import common_ksampler
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# print("[AGSoft H3 Movie Chain] v11.15 loaded (ref video cap uses scene frame count)")
+# print("[AGSoft H3 Movie Chain] v11.18 loaded (frozen scene-1 palette reference, no drift ratchet)")
 
 FPS = 24
 AUDIO_LATENT_FPS = 40
@@ -938,6 +962,51 @@ def _slice_last_context(images, context_frames, decoded):
     return pixels[-1:], pixels[-ctx:]
 
 
+def _color_stats(images):
+    """Среднее/сигма по каналам по ВСЕМ кадрам сцены — эталон палитры фильма.
+    Per-channel mean/std over ALL scene frames — the movie palette reference."""
+    pixels = _to_frames(images)
+    dims = (0, 1, 2)
+    mean = pixels.mean(dim=dims, keepdim=True)
+    std = pixels.std(dim=dims, keepdim=True).clamp(min=1e-5)
+    return mean, std
+
+
+def _stabilize_colors(images, color_ref, mode):
+    """Приводит статистики цвета сцены к ЗАМОРОЖЕННОМУ эталону сцены 1.
+    Эталон не пересчитывается от звена к звену, поэтому дрейф не копится;
+    рисунок эталона не переносится — двоения силуэтов не возникает.
+    Matches the scene color statistics to the FROZEN scene-1 reference.
+    The reference is never recomputed link after link, so drift cannot
+    accumulate; its picture is never transferred — no silhouette ghosting."""
+    ref_mean, ref_std = color_ref
+    pixels = _to_frames(images)
+    if int(ref_mean.shape[-1]) != int(pixels.shape[-1]):
+        return images
+    dims = (0, 1, 2) if mode == "mean_std" else (1, 2)
+    mean = pixels.mean(dim=dims, keepdim=True)
+    std = pixels.std(dim=dims, keepdim=True).clamp(min=1e-5)
+    out = ((pixels - mean) / std * ref_std + ref_mean).clamp(0.0, 1.0)
+    if images.dim() == 5:
+        b, f = int(images.shape[0]), int(images.shape[1])
+        return out.reshape(b, f, int(out.shape[1]), int(out.shape[2]), int(out.shape[-1]))
+    return out
+
+
+def _color_widget():
+    """Виджет приведения палитры к эталону / Palette matching widget."""
+    return {
+        "color_stabilize": (["off", "mean_std", "per_frame"], {"default": "mean_std",
+            "tooltip": _T(
+                "Matches scene color statistics to the frozen scene-1 palette reference: "
+                "mean_std uses whole-scene stats (keeps intra-scene lighting), per_frame "
+                "matches each frame. No picture transfer, so no ghosting. off = raw decode.",
+                "Приводит статистики цвета сцены к замороженному эталону палитры сцены 1: "
+                "mean_std — по всей сцене (сохраняет свет внутри сцены), per_frame — по "
+                "каждому кадру. Рисунок не переносится, двоения нет. off = сырой декод.")}),
+    }
+
+
 def _calc_widgets():
     """Виджеты калькулятора размера / Size calculator widgets."""
     return {
@@ -1100,9 +1169,9 @@ def _scene_body(clip, vae, audio_vae, width, height, prompt, total,
                 seed, steps, cfg, sampler_name, scheduler, decode_mode, tile_size,
                 overlap, temporal_size, temporal_overlap, model, negative, sigmas,
                 denoise, source_piece, source_sr, ref_items, ref_blocks, slots,
-                uid, tag):
-    """Общее тело сцены: кондиционирование, семплирование, срезы.
-    Shared scene body: conditioning, sampling, slices."""
+                uid, tag, color_ref=None, color_stabilize="off"):
+    """Общее тело сцены: кондиционирование, семплирование, палитра, срезы.
+    Shared scene body: conditioning, sampling, palette, slices."""
     extra_items, extra_blocks = _scene_audio_ref(audio_vae, source_piece, source_sr)
     cond, latent_empty, fc = _gen_ref2v(width, height, total, prompt, clip,
                                         ref_items, ref_blocks, extra_items, extra_blocks)
@@ -1121,6 +1190,8 @@ def _scene_body(clip, vae, audio_vae, width, height, prompt, total,
         model, negative, sigmas, latent_empty, cond, seed, steps, cfg,
         sampler_name, scheduler, denoise, decode_mode, tile_size, overlap,
         temporal_size, temporal_overlap, vae, audio_vae, uid, tag)
+    if decoded and color_ref is not None and str(color_stabilize) != "off":
+        images = _stabilize_colors(images, color_ref, str(color_stabilize))
     last_frame_out, context_images = _slice_last_context(images, context_frames, decoded)
     return cond, latent_out, images, gen_audio, last_frame_out, context_images, fc
 
@@ -1138,18 +1209,20 @@ class AGSoft_H3_Ref2V_Movie_Master:
         "Head of the movie chain: global resources (clip, vae, audio_vae, size, fps, refs) "
         "and scene 1. Refs encode once and travel chain_base; sampling/decode params travel "
         "chain_advanced. The scene source_audio piece reaches the model three ways: as this "
-        "scene's minimax_refs audio ref (untouchable by external guide nodes), as the frame-0 "
-        "keyframe audio guide (merged into an existing frame-0 guide by index), and as per-"
-        "guide track cuts. ref_audio_0 stays user-driven. Built-in sampler with per-node cache "
-        "and tiled decode; source_audio_cut gives the raw scene piece for muxing.\n"
+        "scene's minimax_refs audio ref, as the frame-0 keyframe audio guide merged by index, "
+        "and as per-guide track cuts; ref_audio_0 stays user-driven. Built-in sampler with "
+        "per-node cache and tiled decode. Scene 1 is not color-corrected; its palette stats "
+        "over all frames become the frozen color_ref for the whole movie. source_audio_cut "
+        "gives the raw scene piece for muxing.\n"
         "---\n"
         "Голова цепи фильма: глобальные ресурсы (clip, vae, audio_vae, размер, fps, рефы) и "
         "сцена 1. Рефы кодируются один раз и идут по chain_base; параметры семплинга/декода — "
         "по chain_advanced. Кусок source_audio сцены доходит до модели тремя путями: как "
-        "аудио-реф minimax_refs этой сцены (внешние ноды гайдов его не трогают), как аудио-гайд "
-        "кадра 0 в ключевых кадрах (слиянием в существующий гайд кадра 0 по индексу) и как "
-        "отрезки дорожки в гайдах. ref_audio_0 остаётся пользовательским. Встроенный семплер с "
-        "кэшем по ноде и плиточным декодом; source_audio_cut отдаёт сырой кусок для сведения."
+        "аудио-реф minimax_refs этой сцены, как аудио-гайд кадра 0 со слиянием по индексу и "
+        "как отрезки дорожки в гайдах; ref_audio_0 остаётся пользовательским. Встроенный "
+        "семплер с кэшем по ноде и плиточным декодом. Сцена 1 не корректируется по цвету: её "
+        "статистики палитры по всем кадрам становятся замороженным color_ref на весь фильм. "
+        "source_audio_cut отдаёт сырой кусок сцены для сведения."
     )
 
     @classmethod
@@ -1172,6 +1245,7 @@ class AGSoft_H3_Ref2V_Movie_Master:
                 "Размер реф-изображений: по площади или короткая сторона 2048px.")}),
         })
         required.update(_context_widget())
+        required.update(_color_widget())
         required.update(_guide_widgets())
         required.update({
             "prompt": ("STRING", {"default": "", "multiline": True, "tooltip": _T(
@@ -1233,24 +1307,24 @@ class AGSoft_H3_Ref2V_Movie_Master:
                     "width", "height", "fps_int", "fps_float",
                     "total_frames", "duration_seconds")
     OUTPUT_TOOLTIPS = (
-        _T("Base bus: resources, fps, encoded refs, audio cursor, track pieces.",
-           "Базовая шина: ресурсы, fps, закодированные рефы, курсор аудио, куски дорожки."),
+        _T("Base bus: resources, fps, refs, audio cursor, pieces, frozen palette reference.",
+           "Базовая шина: ресурсы, fps, рефы, курсор аудио, куски, замороженный эталон палитры."),
         _T("Advanced bus: steps, cfg, sampler, scheduler, denoise, decode params.",
            "Продвинутая шина: steps, cfg, sampler, scheduler, denoise, параметры декода."),
         _T("Scene 1 conditioning (refs + scene audio ref + keyframe guides).",
            "Conditioning сцены 1 (рефы + аудио-реф сцены + ключевые гайды)."),
         _T("Sampled scene latent (empty AV latent without model).",
            "Семплированный латент сцены (пустой AV-латент без модели)."),
-        _T("Decoded scene frames (placeholder without sampling/decode).",
-           "Декодированные кадры сцены (плейсхолдер без семплинга/декода)."),
+        _T("Decoded scene frames; scene 1 defines the palette reference and is not corrected.",
+           "Декодированные кадры; сцена 1 задаёт эталон палитры и не корректируется."),
         _T("Generated scene audio decoded from the AV latent.",
            "Сгенерированное аудио сцены, декодированное из AV-латента."),
         _T("RAW exactly cut source_audio piece of this scene (silence without source).",
            "СЫРОЙ точно порезанный кусок source_audio этой сцены (тишина без источника)."),
         _T("Source track assembled up to this node (full track on last Link).",
            "Исходная дорожка до этой ноды (полный трек на последнем Link)."),
-        _T("The VERY LAST decoded frame of the scene for the next scene anchor.",
-           "САМЫЙ ПОСЛЕДНИЙ декодированный кадр сцены для якоря следующей сцены."),
+        _T("The VERY LAST decoded frame of the scene for the next scene guide.",
+           "САМЫЙ ПОСЛЕДНИЙ декодированный кадр сцены для гайда следующей сцены."),
         _T("Last N decoded frames for references / motion control.",
            "Последние N декодированных кадров для референсов / контроля движения."),
         _T("Frame width in px.", "Ширина кадра в px."),
@@ -1268,7 +1342,7 @@ class AGSoft_H3_Ref2V_Movie_Master:
              megapixels_value, aspect_ratio, frame_count_source, length_seconds,
              frame_count, source_audio_start_seconds, fps, seed, steps, cfg,
              sampler_name, scheduler, denoise, decode_mode, tile_size, overlap,
-             temporal_size, temporal_overlap, ref_image_size, context_frames,
+             temporal_size, temporal_overlap, ref_image_size, context_frames, color_stabilize,
              number_of_guides, position_mode, prompt, model=None, clip=None,
              negative=None, sigmas=None, vae=None, audio_vae=None, source_audio=None,
              unique_id=None, **slots):
@@ -1298,7 +1372,8 @@ class AGSoft_H3_Ref2V_Movie_Master:
             scheduler, decode_mode, tile_size, overlap, temporal_size,
             temporal_overlap, model, negative, sigmas, denoise, piece, sr,
             ref_items, ref_blocks, slots,
-            str(unique_id) if unique_id is not None else None, "[scene1]")
+            str(unique_id) if unique_id is not None else None, "[scene1]",
+            color_ref=None, color_stabilize=color_stabilize)
         source_out = _audio_dict(piece, sr) if piece is not None else _source_track(duration, sr)
         base_chain = {
             "clip": clip, "vae": vae, "audio_vae": audio_vae,
@@ -1306,6 +1381,7 @@ class AGSoft_H3_Ref2V_Movie_Master:
             "ref_items": ref_items, "ref_blocks": ref_blocks,
             "wave": wave, "sr": sr, "audio_cursor": start + duration,
             "scene_count": 1, "pieces": [source_out["waveform"]],
+            "color_ref": _color_stats(images) if int(images.shape[1]) != PLACEHOLDER_SIZE else None,
         }
         adv_chain = _adv_dict(steps, cfg, sampler_name, scheduler, denoise, decode_mode,
                               tile_size, overlap, temporal_size, temporal_overlap)
@@ -1324,29 +1400,31 @@ class AGSoft_H3_Ref2V_Movie_Link:
                       False, False, False, False, False, False, False, False)
 
     DESCRIPTION = (
-        "Next scene: reads resources, fps and encoded refs from chain_base; sampling/decode "
-        "params from chain_advanced when linked (widgets collapse), else from own widgets. "
-        "Own inputs: prompt, duration, guides, seed. The scene source piece becomes this "
-        "scene's minimax_refs audio ref (survives external Add Guide nodes), the frame-0 "
-        "keyframe audio guide merged by index, and per-guide track cuts — so instrumental "
-        "parts stay instrumental. source_audio_cut = raw scene piece; stitched_audio on the "
-        "last Link = full movie track.\n"
+        "Next scene: reads resources, fps, encoded refs and the frozen palette reference "
+        "from chain_base; sampling/decode params from chain_advanced when linked (widgets "
+        "collapse), else from own widgets. Own inputs: prompt, duration, guides, seed. Every "
+        "guide gets its audio cut from the track piece at the guide position, and a frame-0 "
+        "guide merges image and audio into one key. color_stabilize matches this scene's "
+        "color statistics to the frozen scene-1 reference and never overwrites it, so drift "
+        "cannot accumulate over 5-10 segments and no ghosting appears. source_audio_cut = raw "
+        "scene piece; stitched_audio on the last Link = full movie track.\n"
         "---\n"
-        "Следующая сцена: читает ресурсы, fps и закодированные рефы из chain_base; параметры "
-        "семплинга/декода из chain_advanced, когда подключена (виджеты схлопнуты), иначе из "
-        "своих виджетов. Свои входы: промпт, длительность, гайды, сид. Кусок дорожки сцены "
-        "становится аудио-рефом minimax_refs этой сцены (переживает внешние ноды Add Guide), "
-        "аудио-гайдом кадра 0 со слиянием по индексу и отрезками дорожки в гайдах — поэтому "
-        "инструментальные части остаются инструментальными. source_audio_cut = сырой кусок "
-        "сцены; stitched_audio на последнем Link = полный трек фильма."
+        "Следующая сцена: читает ресурсы, fps, закодированные рефы и замороженный эталон "
+        "палитры из chain_base; параметры семплинга/декода из chain_advanced, когда подключена "
+        "(виджеты схлопнуты), иначе из своих виджетов. Свои входы: промпт, длительность, гайды, "
+        "сид. Каждый гайд получает своё аудио из куска дорожки от позиции гайда, а гайд кадра 0 "
+        "сливает картинку и аудио в один ключ. color_stabilize приводит статистики цвета сцены "
+        "к замороженному эталону сцены 1 и не перезаписывает его, поэтому дрейф не копится за "
+        "5-10 отрезков и двоения нет. source_audio_cut = сырой кусок сцены; stitched_audio на "
+        "последнем Link = полный трек фильма."
     )
 
     @classmethod
     def INPUT_TYPES(cls):
         required = {
             "chain_base": (BASE_TYPE, {"tooltip": _T(
-                "Base chain bus from Master or previous Link: resources, fps, refs, cursor.",
-                "Базовая шина от Master или предыдущего Link: ресурсы, fps, рефы, курсор.")}),
+                "Base bus from Master or previous Link: resources, fps, refs, cursor, palette ref.",
+                "Базовая шина от Master или предыдущего Link: ресурсы, fps, рефы, курсор, эталон.")}),
             "frame_count_source": (["Seconds", "Frames"], {"default": "Seconds", "tooltip": _T(
                 "Seconds or exact Frames; aligned UP to 17N+5.",
                 "Секунды или точные кадры; выравнивание ВВЕРХ до 17N+5.")}),
@@ -1360,6 +1438,7 @@ class AGSoft_H3_Ref2V_Movie_Link:
         required.update(_sampler_widgets())
         required.update(_decode_widgets())
         required.update(_context_widget())
+        required.update(_color_widget())
         required.update(_guide_widgets())
         required.update({
             "prompt": ("STRING", {"default": "", "multiline": True, "tooltip": _T(
@@ -1394,24 +1473,24 @@ class AGSoft_H3_Ref2V_Movie_Link:
                     "width", "height", "fps_int", "fps_float",
                     "total_frames", "duration_seconds")
     OUTPUT_TOOLTIPS = (
-        _T("Base bus for the next Link (fps carried on).",
-           "Базовая шина для следующего Link (fps несётся дальше)."),
+        _T("Base bus for the next Link (fps and frozen palette reference carried on).",
+           "Базовая шина для следующего Link (fps и замороженный эталон палитры несутся дальше)."),
         _T("Advanced bus for the next Link (effective values of this node).",
            "Продвинутая шина для следующего Link (фактические значения этой ноды)."),
         _T("This scene conditioning (refs + scene audio ref + keyframe guides).",
            "Conditioning сцены (рефы + аудио-реф сцены + ключевые гайды)."),
         _T("Sampled scene latent (empty AV latent without model).",
            "Семплированный латент сцены (пустой AV-латент без модели)."),
-        _T("Decoded scene frames (placeholder without sampling/decode).",
-           "Декодированные кадры сцены (плейсхолдер без семплинга/декода)."),
+        _T("Decoded scene frames matched to the frozen scene-1 palette reference.",
+           "Декодированные кадры сцены, приведённые к замороженному эталону палитры сцены 1."),
         _T("Generated scene audio decoded from the AV latent.",
            "Сгенерированное аудио сцены, декодированное из AV-латента."),
         _T("RAW exactly cut source_audio piece of this scene (silence without source).",
            "СЫРОЙ точно порезанный кусок source_audio этой сцены (тишина без источника)."),
         _T("Source track assembled up to this node (full track on last Link).",
            "Исходная дорожка до этой ноды (полный трек на последнем Link)."),
-        _T("The VERY LAST decoded frame of the scene for the next scene anchor.",
-           "САМЫЙ ПОСЛЕДНИЙ декодированный кадр сцены для якоря следующей сцены."),
+        _T("The VERY LAST decoded frame of the scene for the next scene guide.",
+           "САМЫЙ ПОСЛЕДНИЙ декодированный кадр сцены для гайда следующей сцены."),
         _T("Last N decoded frames for references / motion control.",
            "Последние N декодированных кадров для референсов / контроля движения."),
         _T("Frame width in px.", "Ширина кадра в px."),
@@ -1427,7 +1506,7 @@ class AGSoft_H3_Ref2V_Movie_Link:
 
     def main(self, chain_base, frame_count_source, length_seconds, frame_count, seed,
              steps, cfg, sampler_name, scheduler, denoise, decode_mode, tile_size,
-             overlap, temporal_size, temporal_overlap, context_frames,
+             overlap, temporal_size, temporal_overlap, context_frames, color_stabilize,
              number_of_guides, position_mode, prompt, model=None, negative=None,
              sigmas=None, chain_advanced=None, unique_id=None, **slots):
         if not isinstance(chain_base, dict) or "clip" not in chain_base:
@@ -1465,7 +1544,8 @@ class AGSoft_H3_Ref2V_Movie_Link:
             scheduler, decode_mode, tile_size, overlap, temporal_size,
             temporal_overlap, model, negative, sigmas, denoise, piece, sr,
             chain_base.get("ref_items"), chain_base.get("ref_blocks"), slots,
-            str(unique_id) if unique_id is not None else None, f"[scene{scene_index}]")
+            str(unique_id) if unique_id is not None else None, f"[scene{scene_index}]",
+            color_ref=chain_base.get("color_ref"), color_stabilize=color_stabilize)
         source_out = _audio_dict(piece, sr) if piece is not None else _source_track(duration, sr)
         pieces = chain_base["pieces"] + [source_out["waveform"]]
         new_base = dict(chain_base)
