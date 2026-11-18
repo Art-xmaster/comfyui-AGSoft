@@ -61,7 +61,7 @@ AGSoft_Load_Image_Mask_Resize.js
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
-console.log("[AGSoft Load Image & Mask Resize] JS extension loaded v11.17 (input/output picker + arrows + original filename characters)");
+console.log("[AGSoft Load Image & Mask Resize] JS extension loaded v11.18 (input/output picker + arrows + original filename characters)");
 
 const NODE_CLASS = "AGSoft_Load_Image_Mask_Resize";
 const STYLE_ID = "agsoft-load-image-mask-resize-style";
@@ -309,7 +309,8 @@ function ensureStyles() {
     display: block;
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
+    background: #0b0b0f;
 }
 .agsoft-thumbs-card:hover {
     border-color: #7fd4ff;
