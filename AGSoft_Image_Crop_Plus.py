@@ -85,7 +85,7 @@ except Exception:
     web = None
     PromptServer = None
 
-print("[AGSoft Image Crop Plus] v11.21 loaded (interactive crop + pause + stitch)")
+# print("[AGSoft Image Crop Plus] v11.21 loaded (interactive crop + pause + stitch)")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
