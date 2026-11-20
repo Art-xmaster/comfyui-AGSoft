@@ -243,7 +243,7 @@ class AGSoftPipeLink:
     RETURN_NAMES = ("bus",) + tuple(f"out_{i}" for i in range(1, MAX_OUT + 1))
     OUTPUT_TOOLTIPS = (TIP_BUS_OUT,) + (TIP_DATA_OUT,) * MAX_OUT
     FUNCTION = "dispatch"
-    CATEGORY = "AGSoft/Pipe"
+    CATEGORY = "AGSoft/Utils"
     DESCRIPTION = (
         "Extracts selected bus entries into separate outputs and passes the bus on. "
         "--- "
@@ -284,6 +284,6 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "AGSoftPipeMaster": "🧩 AGSoft Pipe Master",
-    "AGSoftPipeLink": "🔀 AGSoft Pipe Link",
+    "AGSoftPipeMaster": "🧩AGSoft Pipe Master",
+    "AGSoftPipeLink": "🔀AGSoft Pipe Link",
 }
