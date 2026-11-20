@@ -5,72 +5,81 @@ AGSoft_Load_Image_Mask_Resize.js
 Расширение: 🖼️AGSoft Load Image & Mask Resize
 Описание / Description:
     Клиентская часть ноды AGSoft_Load_Image_Mask_Resize.
-    1) Виджет image: клик по краям (зоны стрелок) листает файлы по кругу,
-       клик по центру открывает окно эскизов. Значение и превью обновляются
-       сразу, как при обычном выборе в комбо.
-    2) Окно эскизов — виртуальная сетка: в DOM живут только видимые строки
-       плюс запас. Внизу переключатель папок input / output; выбор из output
-       копирует файл в input и делает его источником. Окно открывается на
-       текущей картинке, стрелки двигают курсор, Enter выбирает, Esc закрывает.
-       Картинки тянутся с серверного роута уменьшенных WebP-эскизов.
-    3) Превью рисует DOM-виджет, node.imgs остаётся настоящим: MaskEditor и
-       меню ноды работают. Правый клик по превью и статус-бару открывает
-       стандартное меню ComfyUI.
-    4) Состояние сервера применяется только при совпадении ключа источника.
-    5) Drag&drop из проводника, с рабочего стола и из панели Assets: сначала
-       ссылка (text/uri-list), затем файлы. Drop ловится и на всей ноде.
-    6) Превью собирается на canvas тем же пайплайном, что и сервер:
+    1) Превью и статус-бар живут в ОДНОМ DOM-виджете (flex-колонка): превью
+       забирает всё свободное место, бар фиксированной высоты прижат к низу.
+       Пустая полоса между ними невозможна ни в обычном режиме, ни в Nodes 2.0.
+    2) Реальный размер панели измеряется ResizeObserver: кадр пересчитывается
+       при любом изменении размеров, поэтому превью не обрезается и не
+       остаётся маленьким в большом боксе.
+    3) ПОЛЬЗОВАТЕЛЬСКИЙ РАЗМЕР ЗАФИКСИРОВАН: ширина и высота ноды пишутся в
+       node.properties.agsoft_node_size при каждом изменении и возвращаются
+       после смены вкладки, перезагрузки воркфлоу и сворачивания. Восстановление
+       идёт серией отложенных тиков, чтобы пережить поздние проходы раскладки;
+       на это время автоматические перезаписи размера заблокированы, поэтому
+       нода больше не возвращается к размеру по умолчанию.
+    4) Nodes 2.0 (Vue): режим определяется по настройке либо по тишине
+       canvas-отрисовки; панель отдаёт свою высоту как честную высоту контента
+       и подхватывает выделенное рендерером место.
+    5) Обычный режим: высота ноды = виджеты + панель, минимум не зависит от
+       текущего размера, нода свободно сжимается и растягивается.
+    6) Виджет image: клик по краям листает файлы, клик по центру открывает
+       окно эскизов (input / output, поиск, подпапки, виртуальная сетка).
+    7) Превью собирается на canvas тем же пайплайном, что и сервер:
        rotate → fit (stretch / crop / pad / proportional) → flip, с цветом
        полей pad_image_color и шахматной подложкой для прозрачности.
-    7) Превью вписывается в размер ноды и не меняет его; нода свободно
-       тянется и сжимается по вертикали и горизонтали.
-    8) Авто-скрытие виджетов по режиму; сворачивание параметров кнопкой ▴
-       оставляет custom_path, image, загрузку, превью и статус-бар.
-    9) Статус-бар: реальные МП и Ш×В источника → пересчитанные МП и Ш×В
-       результата; после выполнения — фактический размер выхода (✓).
+    8) node.imgs остаётся настоящим: MaskEditor и меню ноды работают;
+       правый клик по превью и бару открывает стандартное меню ComfyUI.
+    9) Drag&drop из проводника, с рабочего стола и из панели Assets;
+       состояние сервера применяется только при совпадении ключа источника.
     ---
     Client part of the AGSoft_Load_Image_Mask_Resize node.
-    1) The image widget: clicking its edges (arrow zones) cycles files,
-       clicking the middle opens the thumbnail picker. Value and preview
-       update immediately, exactly like a normal combo selection.
-    2) The picker is a virtual grid: only visible rows plus an overscan live
-       in the DOM. A bottom switch selects input / output; picking from
-       output copies the file into input and selects it. The window opens on
-       the current picture, arrows move the cursor, Enter picks, Esc closes.
-       Images come from a server route serving small WebP thumbnails.
-    3) The DOM widget draws the preview while node.imgs stays real, so the
-       mask editor and the node menu keep working. Right-click opens the
-       standard ComfyUI node menu.
-    4) Server state is applied only when the source key matches.
-    5) Drag&drop from the file manager, the desktop and the Assets panel:
-       the link (text/uri-list) first, then files. Drops hit the whole node.
-    6) The preview is composed on a canvas with the server pipeline:
+    1) The preview and the status bar live in ONE DOM widget (flex column):
+       the preview takes all the free space, the fixed-height bar is pinned
+       to the bottom. An empty band between them is impossible in both the
+       legacy renderer and Nodes 2.0.
+    2) The real panel size is measured with ResizeObserver: the frame is
+       recomputed on any size change, so the preview is never cropped and
+       never stays small inside a large box.
+    3) THE USER SIZE IS LOCKED: node width and height are written to
+       node.properties.agsoft_node_size on every change and restored after a
+       tab switch, a workflow reload and collapsing. Restoration runs as a
+       series of deferred ticks to survive late layout passes; during that
+       window automatic size rewrites are blocked, so the node no longer
+       falls back to its creation size.
+    4) Nodes 2.0 (Vue): the mode is detected via the setting or via canvas
+       draw silence; the panel reports its height as honest content height
+       and adopts the space allocated by the renderer.
+    5) Legacy mode: node height = widgets + panel, the minimum is
+       size-independent, the node shrinks and stretches freely.
+    6) The image widget: clicking its edges cycles files, clicking the middle
+       opens the thumbnail picker (input / output, search, virtual grid).
+    7) The preview is composed on a canvas with the server pipeline:
        rotate → fit (stretch / crop / pad / proportional) → flip, using
        pad_image_color and a checkerboard for transparency.
-    7) The preview fits the node size and never changes it; the node resizes
-       freely in both directions.
-    8) Mode-aware widget hiding; the ▴ collapse keeps custom_path, image,
-       upload, preview and the status bar.
-    9) Status bar: real source MP/W×H → recomputed output MP/W×H; after
-       execution the actual output size is shown (✓).
+    8) node.imgs stays real: MaskEditor and the node menu keep working;
+       right-click opens the standard ComfyUI node menu.
+    9) Drag&drop from the file manager, desktop and Assets panel; server
+       state is applied only when the source key matches.
 Автор / Author: AGSoft
-Дата / Date: 16.11.2026
+Дата / Date: 18.11.2026
 ==============================================================================
 */
 
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
 
-console.log("[AGSoft Load Image & Mask Resize] JS extension loaded v11.18 (input/output picker + arrows + original filename characters)");
+console.log("[AGSoft Load Image & Mask Resize] JS extension loaded v11.18 (panel + user size lock)");
 
 const NODE_CLASS = "AGSoft_Load_Image_Mask_Resize";
 const STYLE_ID = "agsoft-load-image-mask-resize-style";
 const CORE_PREVIEW_WIDGET = "$$canvas-image-preview";
 const MIN_NODE_WIDTH = 340;
 const STATUS_HEIGHT = 26;
+const PANEL_GAP = 6;
+const MIN_PANEL_H = STATUS_HEIGHT + PANEL_GAP;
+const PANEL_DEFAULT_H = 240 + STATUS_HEIGHT + PANEL_GAP;
+const PREVIEW_RESTORE_MIN_AREA = 180;
 const PREVIEW_BOTTOM_GAP = 4;
-const MIN_PREVIEW_AREA = 0;
-const PREVIEW_DEFAULT_AREA = 240;
 const PREVIEW_PADDING = 8;
 const PREVIEW_WORK_MAX = 1280;
 const PATH_DEBOUNCE_MS = 450;
@@ -81,6 +90,10 @@ const SEARCH_DEBOUNCE_MS = 120;
 const THUMB_GAP = 8;
 const THUMB_OVERSCAN = 2;
 const COMBO_ARROW_ZONE = 30;
+const MODE_TICK_MS = 500;
+const VUE_SILENCE_MS = 1500;
+const RESTORE_TICKS = [0, 60, 180, 420];
+const RESTORE_LOCK_MS = 1200;
 const IMAGE_EXT_RE = /\.(png|jpe?g|jfif|webp|gif|bmp|tiff?|ico|avif)$/i;
 
 const SIZE_WIDGETS = ["target_megapixels", "target_percentage", "target_width", "target_height"];
@@ -119,6 +132,8 @@ const CROP_POSITIONS = {
 };
 
 let thumbDialog = null;
+const modeWatchers = new Set();
+let modeTimer = null;
 
 
 // =============================================================================
@@ -129,8 +144,20 @@ function ensureStyles() {
     const style = document.createElement("style");
     style.id = STYLE_ID;
     style.textContent = `
+.agsoft-resize-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    gap: ${PANEL_GAP}px;
+    width: 100%;
+    height: 100%;
+    min-height: ${MIN_PANEL_H}px;
+    box-sizing: border-box;
+}
 .agsoft-resize-preview {
     position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
     width: 100%;
     box-sizing: border-box;
     overflow: hidden;
@@ -171,6 +198,7 @@ function ensureStyles() {
     border: 1px dashed var(--ags-accent, #7fd4ff);
 }
 .agsoft-resize-status {
+    flex: 0 0 ${STATUS_HEIGHT}px;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -291,6 +319,22 @@ function ensureStyles() {
     background: #0f0f13;
     border: 1px solid rgba(255, 255, 255, 0.06);
     contain: strict;
+    scrollbar-width: thin;
+    scrollbar-color: #3a4250 #0f0f13;
+}
+.agsoft-thumbs-viewport::-webkit-scrollbar {
+    width: 10px;
+}
+.agsoft-thumbs-viewport::-webkit-scrollbar-track {
+    background: #0f0f13;
+}
+.agsoft-thumbs-viewport::-webkit-scrollbar-thumb {
+    border-radius: 6px;
+    background: #3a4250;
+    border: 2px solid #0f0f13;
+}
+.agsoft-thumbs-viewport::-webkit-scrollbar-thumb:hover {
+    background: #7fd4ff;
 }
 .agsoft-thumbs-sizer {
     position: relative;
@@ -512,11 +556,65 @@ function watchSourceChange(node) {
     // Значение комбо может измениться без колбэка (сохранение из MaskEditor).
     // The combo value can change without a callback (saving from MaskEditor).
     const state = node._agsoft;
+    if (!state) return;
     const value = String(widgetValue(node, "image") || "");
     if (value === state.comboWatch) return;
     state.comboWatch = value;
     adoptClipspace(node, value);
     showComboPreview(node);
+}
+
+
+// =============================================================================
+// РЕЖИМ РЕНДЕРА / RENDER MODE
+// =============================================================================
+function vueNodesSetting() {
+    if (!app.ui || !app.ui.settings || typeof app.ui.settings.getSettingValue !== "function") return null;
+    try {
+        const value = app.ui.settings.getSettingValue("Comfy.VueNodes.Enabled");
+        return typeof value === "boolean" ? value : null;
+    } catch (error) {
+        console.debug("[AGSoft Load Image & Mask Resize] vue setting unavailable:", error);
+        return null;
+    }
+}
+
+function modeTick() {
+    const now = Date.now();
+    for (const controller of modeWatchers) {
+        try {
+            controller.check(now);
+        } catch (error) {
+            console.warn("[AGSoft Load Image & Mask Resize] mode check failed:", error);
+        }
+    }
+}
+
+function watchMode(controller) {
+    modeWatchers.add(controller);
+    if (!modeTimer) modeTimer = setInterval(modeTick, MODE_TICK_MS);
+}
+
+function unwatchMode(controller) {
+    modeWatchers.delete(controller);
+    if (!modeWatchers.size && modeTimer) {
+        clearInterval(modeTimer);
+        modeTimer = null;
+    }
+}
+
+function setVueMode(node, on) {
+    const state = node._agsoft;
+    if (!state || state.vueMode === on) return;
+    state.vueMode = on;
+    // Пока идёт восстановление размера, раскладку не трогаем.
+    // While the size is being restored the layout is left alone.
+    if (!state.ready) {
+        syncPreviewBox(node);
+        layoutPreviewCanvas(node);
+        return;
+    }
+    refreshNodeSize(node);
 }
 
 
@@ -630,11 +728,12 @@ function predictOutput(srcW, srcH, values) {
 
 
 // =============================================================================
-// РАЗМЕРЫ / SIZES
+// РАЗМЕРЫ: панель + зафиксированный пользовательский размер ноды
+// SIZES: panel + locked user node size
 // =============================================================================
 function baseSize(node) {
     const state = node._agsoft;
-    const widget = state.previewWidget;
+    const widget = state.panelWidget;
     const original = widget ? widget.computeSize : null;
     if (widget) widget.computeSize = () => [0, 0];
     let size;
@@ -646,20 +745,60 @@ function baseSize(node) {
     return [size[0] || MIN_NODE_WIDTH, size[1] || 0];
 }
 
+function panelHeight(node) {
+    const state = node._agsoft;
+    if (!state) return PANEL_DEFAULT_H;
+    return Math.max(MIN_PANEL_H, num(state.panelH, PANEL_DEFAULT_H));
+}
+
 function previewAreaHeight(node) {
-    const base = baseSize(node);
-    return Math.max(MIN_PREVIEW_AREA, node.size[1] - base[1] - PREVIEW_BOTTOM_GAP);
+    return Math.max(0, panelHeight(node) - STATUS_HEIGHT - PANEL_GAP);
+}
+
+function bottomGap(node) {
+    const state = node._agsoft;
+    return state && state.vueMode ? 0 : PREVIEW_BOTTOM_GAP;
+}
+
+function persistPanelHeight(node) {
+    const state = node._agsoft;
+    if (!state || !state.ready || !node.properties) return;
+    const value = Math.round(panelHeight(node));
+    if (node.properties.agsoft_panel_h === value) return;
+    node.properties.agsoft_panel_h = value;
+}
+
+function savedNodeSize(node) {
+    const raw = node.properties ? node.properties.agsoft_node_size : null;
+    if (!Array.isArray(raw) || raw.length < 2) return null;
+    const width = num(raw[0], 0);
+    const height = num(raw[1], 0);
+    if (width < MIN_NODE_WIDTH || height <= 0) return null;
+    return [width, height];
+}
+
+function persistUserSize(node) {
+    const state = node._agsoft;
+    if (!state || !state.ready || !node.properties) return;
+    const width = Math.round(num(node.size[0], MIN_NODE_WIDTH));
+    const height = Math.round(num(node.size[1], 0));
+    if (height <= 0) return;
+    const prev = node.properties.agsoft_node_size;
+    if (Array.isArray(prev) && prev[0] === width && prev[1] === height) return;
+    node.properties.agsoft_node_size = [width, height];
 }
 
 function syncPreviewBox(node) {
     const state = node._agsoft;
-    if (!state || !state.previewEl) return;
-    state.previewEl.style.height = `${previewAreaHeight(node)}px`;
+    if (!state || !state.panelEl) return;
+    // В Vue размер задаёт рендерер, в обычном режиме — мы.
+    // In Vue the renderer sets the size, in legacy mode we do.
+    state.panelEl.style.height = state.vueMode ? "100%" : `${panelHeight(node)}px`;
 }
 
 function layoutPreviewCanvas(node) {
     const state = node._agsoft;
-    if (!state || !state.canvasEl || !state.frame) return;
+    if (!state || !state.canvasEl || !state.frame || !state.previewEl) return;
     const boxW = Math.max((state.previewEl.clientWidth || node.size[0] - 24) - PREVIEW_PADDING, 1);
     const boxH = Math.max((state.previewEl.clientHeight || previewAreaHeight(node)) - PREVIEW_PADDING, 1);
     const scale = Math.min(boxW / state.frame.w, boxH / state.frame.h);
@@ -672,18 +811,101 @@ function layoutPreviewCanvas(node) {
 }
 
 function refreshNodeSize(node, area) {
+    const state = node._agsoft;
+    if (!state) return;
+    if (area !== undefined) {
+        const wanted = Math.max(0, num(area, previewAreaHeight(node)));
+        state.panelH = Math.max(MIN_PANEL_H, wanted + STATUS_HEIGHT + PANEL_GAP);
+    }
     const base = baseSize(node);
     const width = Math.max(node.size[0], base[0], MIN_NODE_WIDTH);
-    const wanted = num(area, previewAreaHeight(node));
-    const previewArea = Math.max(MIN_PREVIEW_AREA, wanted);
-    const height = base[1] + previewArea + PREVIEW_BOTTOM_GAP;
+    const height = base[1] + panelHeight(node) + bottomGap(node);
     if (node.size[0] !== width || Math.abs(node.size[1] - height) > 0.5) {
         node.setSize([width, height]);
     }
+    state.lastHeight = node.size[1];
+    persistPanelHeight(node);
+    persistUserSize(node);
     syncPreviewBox(node);
     layoutPreviewCanvas(node);
     node.setDirtyCanvas(true, true);
     if (app.graph) app.graph.setDirtyCanvas(true, true);
+}
+
+function applyUserSize(node) {
+    const state = node._agsoft;
+    if (!state) return;
+    const saved = savedNodeSize(node);
+    const base = baseSize(node);
+    if (saved) {
+        // Размер пользователя главнее любых расчётов и дефолтов.
+        // The user's size wins over any calculation and default.
+        state.panelH = Math.max(MIN_PANEL_H, saved[1] - base[1] - bottomGap(node));
+        if (node.size[0] !== saved[0] || Math.abs(node.size[1] - saved[1]) > 0.5) {
+            node.setSize([saved[0], saved[1]]);
+        }
+        state.lastHeight = node.size[1];
+        syncPreviewBox(node);
+        layoutPreviewCanvas(node);
+        node.setDirtyCanvas(true, true);
+        if (app.graph) app.graph.setDirtyCanvas(true, true);
+        return;
+    }
+    const savedPanel = num(node.properties ? node.properties.agsoft_panel_h : 0, 0);
+    if (savedPanel > 0) state.panelH = Math.max(MIN_PANEL_H, savedPanel);
+    refreshNodeSize(node);
+}
+
+function scheduleRestore(node) {
+    const state = node._agsoft;
+    if (!state) return;
+    // Часть фронтендов применяет свой размер позже: повторяем восстановление.
+    // Some frontends apply their own size later: repeat the restoration.
+    state.ready = false;
+    for (const timer of state.restoreTimers) clearTimeout(timer);
+    state.restoreTimers = [];
+    for (const delay of RESTORE_TICKS) {
+        state.restoreTimers.push(setTimeout(() => {
+            if (node._agsoft) applyUserSize(node);
+        }, delay));
+    }
+    state.restoreTimers.push(setTimeout(() => {
+        if (!node._agsoft) return;
+        applyUserSize(node);
+        node._agsoft.ready = true;
+        persistPanelHeight(node);
+        persistUserSize(node);
+    }, RESTORE_LOCK_MS));
+}
+
+function ensurePreviewArea(node, minArea) {
+    // Слишком маленькая область не показывает кадр: добираем минимум.
+    // Too small an area hides the frame: top it up to the minimum.
+    if (previewAreaHeight(node) >= minArea) return;
+    refreshNodeSize(node, minArea);
+}
+
+function watchPanelSize(node) {
+    const state = node._agsoft;
+    if (!state || typeof ResizeObserver !== "function") return;
+    const observer = new ResizeObserver(() => {
+        const current = node._agsoft;
+        if (!current || !current.panelEl) return;
+        layoutPreviewCanvas(node);
+        // Пока размер восстанавливается, измерение не может его переписать.
+        // While the size is restored, a measurement must not overwrite it.
+        if (!current.ready) return;
+        const measured = current.panelEl.clientHeight;
+        if (measured > panelHeight(node) + 6) {
+            current.panelH = Math.max(MIN_PANEL_H, measured);
+            persistPanelHeight(node);
+            persistUserSize(node);
+            layoutPreviewCanvas(node);
+        }
+    });
+    observer.observe(state.panelEl);
+    observer.observe(state.previewEl);
+    state.observer = observer;
 }
 
 function renderPreview(node) {
@@ -817,7 +1039,6 @@ function setWidgetVisible(widget, visible) {
 function applyVisibility(node) {
     const state = node._agsoft;
     if (!state) return;
-    const areaBefore = previewAreaHeight(node);
     const collapsed = node.properties.agsoft_collapsed === true;
     const wanted = wantedVisibility(node);
     const shown = [];
@@ -837,7 +1058,7 @@ function applyVisibility(node) {
     const signature = `${collapsed ? 1 : 0}|${shown.join(",")}`;
     if (signature !== state.signature) {
         state.signature = signature;
-        if (!state.restoring) refreshNodeSize(node, areaBefore);
+        if (!state.restoring && state.ready) refreshNodeSize(node);
     }
     syncToggle(node);
     updateStatus(node);
@@ -1017,7 +1238,6 @@ function setCustomPath(node, path) {
 }
 
 async function uploadFile(node, file) {
-    const state = node._agsoft;
     if (!file) return;
     if (!String(file.type || "").startsWith("image/")) {
         showHint(node, "image files only / только изображения");
@@ -1674,9 +1894,10 @@ function hookImagePicker(node) {
 
 
 // =============================================================================
-// ВИДЖЕТЫ ПРЕВЬЮ И СТАТУС-БАРА / PREVIEW AND STATUS BAR WIDGETS
+// ПАНЕЛЬ: превью + статус-бар в одном виджете
+// PANEL: preview + status bar inside a single widget
 // =============================================================================
-function createPreview(node) {
+function buildPreview(node) {
     const state = node._agsoft;
     const wrap = document.createElement("div");
     wrap.className = "agsoft-resize-preview";
@@ -1709,24 +1930,13 @@ function createPreview(node) {
         applyTransfer(node, readTransfer(event.dataTransfer));
     });
 
-    const widget = node.addDOMWidget("agsoft_preview", "agsoft_preview", wrap, {
-        serialize: false,
-        hideOnZoom: false,
-        getValue: () => "",
-        setValue: () => {},
-    });
-    widget.serialize = false;
-    widget._agsoftAlwaysVisible = true;
-    widget._agsoftVisible = true;
-    widget.computeSize = (width) => [width, previewAreaHeight(node)];
-
     state.previewEl = wrap;
     state.canvasEl = canvas;
     state.hintEl = hint;
-    state.previewWidget = widget;
+    return wrap;
 }
 
-function createStatusBar(node) {
+function buildStatusBar(node) {
     const state = node._agsoft;
     const bar = document.createElement("div");
     bar.className = "agsoft-resize-status";
@@ -1761,7 +1971,6 @@ function createStatusBar(node) {
     bar.appendChild(uploadBtn);
     bar.appendChild(toggleBtn);
     bar.appendChild(fileInput);
-    bar.addEventListener("pointerdown", (event) => event.stopPropagation());
     attachNodeMenu(node, bar);
 
     thumbsBtn.onclick = () => openThumbnails(node);
@@ -1774,23 +1983,44 @@ function createStatusBar(node) {
     toggleBtn.onclick = () => {
         node.properties.agsoft_collapsed = !(node.properties.agsoft_collapsed === true);
         applyVisibility(node);
+        if (node.properties.agsoft_collapsed) ensurePreviewArea(node, PREVIEW_RESTORE_MIN_AREA);
+        persistPanelHeight(node);
+        persistUserSize(node);
     };
 
-    const widget = node.addDOMWidget("agsoft_status", "agsoft_status", bar, {
+    state.statusEl = bar;
+    state.statusText = text;
+    state.toggleBtn = toggleBtn;
+    return bar;
+}
+
+function createPanel(node) {
+    const state = node._agsoft;
+    const panel = document.createElement("div");
+    panel.className = "agsoft-resize-panel";
+    panel.appendChild(buildPreview(node));
+    panel.appendChild(buildStatusBar(node));
+    panel.addEventListener("pointerdown", (event) => event.stopPropagation());
+    attachNodeMenu(node, panel);
+
+    // Один виджет на превью и бар: рендерер не может вставить между ними пустоту.
+    // One widget for preview and bar: the renderer cannot insert a gap between them.
+    const widget = node.addDOMWidget("agsoft_panel", "agsoft_panel", panel, {
         serialize: false,
         hideOnZoom: false,
+        getHeight: () => panelHeight(node),
+        getMinHeight: () => MIN_PANEL_H,
         getValue: () => "",
         setValue: () => {},
     });
     widget.serialize = false;
     widget._agsoftAlwaysVisible = true;
     widget._agsoftVisible = true;
-    widget.computeSize = (width) => [width, STATUS_HEIGHT];
+    widget.computeSize = (width) => [width, panelHeight(node)];
 
-    state.statusEl = bar;
-    state.statusText = text;
-    state.toggleBtn = toggleBtn;
-    state.statusWidget = widget;
+    state.panelEl = panel;
+    state.panelWidget = widget;
+    watchPanelSize(node);
 }
 
 function syncToggle(node) {
@@ -1822,14 +2052,10 @@ function updateStatus(node) {
 
 function applyTheme(node) {
     const state = node._agsoft;
-    if (!state || !state.previewEl || !state.statusEl) return;
-    const bg = node.bgcolor || "#1a1a1a";
-    const accent = node.color || "#7fd4ff";
-    for (const element of [state.previewEl, state.statusEl]) {
-        element.style.setProperty("--ags-bg", bg);
-        element.style.setProperty("--ags-accent", accent);
-        element.style.setProperty("--ags-text", "#cfd6e4");
-    }
+    if (!state || !state.panelEl) return;
+    state.panelEl.style.setProperty("--ags-bg", node.bgcolor || "#1a1a1a");
+    state.panelEl.style.setProperty("--ags-accent", node.color || "#7fd4ff");
+    state.panelEl.style.setProperty("--ags-text", "#cfd6e4");
 }
 
 
@@ -1863,13 +2089,22 @@ function hookWidgets(node) {
 
 function hookNode(node) {
     node.computeSize = function(out) {
+        const state = node._agsoft;
         const base = baseSize(node);
+        const width = Math.max(base[0], MIN_NODE_WIDTH);
+        // В Vue отдаём честную высоту контента, иначе появится пустая полоса.
+        // In Vue report honest content height, otherwise an empty band appears.
+        if (state && state.vueMode) {
+            return [width, base[1] + panelHeight(node)];
+        }
         // Минимум не зависит от текущего размера: ноду можно сжимать обратно.
         // The minimum is size-independent: the node can be shrunk back.
-        return [Math.max(base[0], MIN_NODE_WIDTH), base[1] + MIN_PREVIEW_AREA + PREVIEW_BOTTOM_GAP];
+        return [width, base[1] + MIN_PANEL_H + PREVIEW_BOTTOM_GAP];
     };
 
     node.onDrawBackground = function(ctx) {
+        const state = node._agsoft;
+        if (state) state.canvasAt = Date.now();
         suppressCorePreview(node);
         watchSourceChange(node);
     };
@@ -1877,6 +2112,25 @@ function hookNode(node) {
     const baseOnResize = node.onResize;
     node.onResize = function(size) {
         if (baseOnResize) baseOnResize.apply(this, arguments);
+        const state = node._agsoft;
+        if (!state) return;
+        const height = num(size && size[1], num(node.size[1], 0));
+        const base = baseSize(node)[1];
+        if (state.vueMode) {
+            const previous = num(state.lastHeight, height);
+            const delta = height - previous;
+            if (Math.abs(delta) > 0.5) {
+                state.panelH = Math.max(MIN_PANEL_H, panelHeight(node) + delta);
+            }
+            state.lastHeight = base + panelHeight(node);
+        } else {
+            state.panelH = Math.max(MIN_PANEL_H, height - base - PREVIEW_BOTTOM_GAP);
+            state.lastHeight = height;
+        }
+        // Ресайз пользователем — источник истины для сохранения размера.
+        // A user resize is the source of truth for the stored size.
+        persistPanelHeight(node);
+        persistUserSize(node);
         syncPreviewBox(node);
         layoutPreviewCanvas(node);
         updateStatus(node);
@@ -1896,8 +2150,7 @@ function hookNode(node) {
         state.restoring = true;
         applyVisibility(node);
         state.restoring = false;
-        syncPreviewBox(node);
-        layoutPreviewCanvas(node);
+        scheduleRestore(node);
         showComboPreview(node);
         refreshState(node);
     };
@@ -1914,6 +2167,8 @@ function hookNode(node) {
     node.onDrawForeground = function(ctx) {
         if (baseOnDrawForeground) baseOnDrawForeground.apply(this, arguments);
         const state = node._agsoft;
+        if (!state) return;
+        state.canvasAt = Date.now();
         const key = `${node.color || ""}|${node.bgcolor || ""}`;
         if (key !== state.themeKey) {
             state.themeKey = key;
@@ -1933,7 +2188,12 @@ function hookNode(node) {
     node.onRemoved = function() {
         if (baseOnRemoved) baseOnRemoved.apply(this, arguments);
         const state = node._agsoft;
-        if (state && state.pathTimer) clearTimeout(state.pathTimer);
+        if (!state) return;
+        if (state.pathTimer) clearTimeout(state.pathTimer);
+        for (const timer of state.restoreTimers) clearTimeout(timer);
+        state.restoreTimers = [];
+        if (state.observer) state.observer.disconnect();
+        if (state.controller) unwatchMode(state.controller);
         if (thumbDialog && thumbDialog.node === node) closeThumbnails();
     };
 }
@@ -2046,6 +2306,8 @@ app.registerExtension({
         if (typeof node.properties.agsoft_collapsed !== "boolean") {
             node.properties.agsoft_collapsed = false;
         }
+        const savedSize = savedNodeSize(node);
+        const savedPanel = num(node.properties.agsoft_panel_h, 0);
         node._agsoft = {
             src: null,
             out: null,
@@ -2059,21 +2321,50 @@ app.registerExtension({
             pendingUrl: "",
             restoring: false,
             dropHover: false,
+            vueMode: false,
+            ready: false,
+            canvasAt: Date.now(),
+            panelH: savedPanel > 0 ? savedPanel : PANEL_DEFAULT_H,
+            lastHeight: num(node.size && node.size[1], 0),
             baseComputeSize: node.computeSize,
             sourceImg: null,
             frame: null,
+            observer: null,
+            controller: null,
+            restoreTimers: [],
         };
+        if (savedSize) node._agsoft.lastHeight = savedSize[1];
 
-        createPreview(node);
-        createStatusBar(node);
+        createPanel(node);
         hookWidgets(node);
         hookImagePicker(node);
         hookNode(node);
         applyTheme(node);
         applyVisibility(node);
-        refreshNodeSize(node, PREVIEW_DEFAULT_AREA);
+        // Размер применяется отложенно: узел может быть ещё не сконфигурирован.
+        // The size is applied deferred: the node may not be configured yet.
+        scheduleRestore(node);
         node._agsoft.comboWatch = String(widgetValue(node, "image") || "");
         showComboPreview(node);
         refreshState(node);
+
+        const controller = {
+            check(now) {
+                const state = node._agsoft;
+                if (!state) return;
+                const setting = vueNodesSetting();
+                const vue = setting !== null ? setting : (now - state.canvasAt) > VUE_SILENCE_MS;
+                setVueMode(node, vue);
+                // В Vue canvas-хуки молчат: слежение за источником живёт здесь.
+                // In Vue the canvas hooks stay silent: source watching lives here.
+                if (state.vueMode) {
+                    suppressCorePreview(node);
+                    watchSourceChange(node);
+                    layoutPreviewCanvas(node);
+                }
+            },
+        };
+        node._agsoft.controller = controller;
+        watchMode(controller);
     },
 });
