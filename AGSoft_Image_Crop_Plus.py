@@ -85,7 +85,7 @@ except Exception:
     web = None
     PromptServer = None
 
-# print("[AGSoft Image Crop Plus] v11.21 loaded (interactive crop + pause + stitch)")
+# print("[AGSoft Image Crop Plus] v11.21 loaded (crop + pause + mask-aware stitch)")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -157,6 +157,23 @@ def _border_weight(h: int, w: int, feather: int) -> np.ndarray:
     xx = np.arange(w)[None, :].astype(np.float32)
     dist = np.minimum(np.minimum(yy, h - 1 - yy), np.minimum(xx, w - 1 - xx))
     return np.clip(dist / feather, 0.0, 1.0)
+
+
+def _match_channels_np(array: np.ndarray, channels: int) -> np.ndarray:
+    """Align HWC channels to the target count. / Выравнивает каналы HWC под нужное число."""
+    current = int(array.shape[2])
+    if current == channels:
+        return array
+    if current == 1:
+        return np.repeat(array, channels, axis=2)
+    if channels == 1:
+        return array[..., :1]
+    if current > channels:
+        return array[..., :channels]
+    if channels == 4 and current == 3:
+        alpha = np.ones((array.shape[0], array.shape[1], 1), dtype=array.dtype)
+        return np.concatenate([array, alpha], axis=2)
+    return np.repeat(array[..., :1], channels, axis=2)
 
 
 # ==============================================================================
@@ -541,8 +558,8 @@ class AGSoft_Image_Crop_Plus:
                     except Exception:
                         logger.debug("[AGSoft Image Crop Plus] resumed notify failed")
             if not crop_coords or crop_coords in ("[]", "{}"):
-                crop_data = {"original_image": loaded.clone(), "x": 0, "y": 0,
-                             "w": img_w, "h": img_h, "device": loaded.device}
+                crop_data = {"version": 1, "original_image": loaded, "x": 0, "y": 0,
+                             "w": img_w, "h": img_h}
                 return (crop_data, loaded, lm, img_w, img_h, fn, fp)
             data = json.loads(crop_coords)
             if isinstance(data, list) and len(data) == 4:
@@ -557,8 +574,8 @@ class AGSoft_Image_Crop_Plus:
                 min_x, min_y = int(data["x"]), int(data["y"])
                 w, h = int(data["w"]), int(data["h"])
             else:
-                crop_data = {"original_image": loaded.clone(), "x": 0, "y": 0,
-                             "w": img_w, "h": img_h, "device": loaded.device}
+                crop_data = {"version": 1, "original_image": loaded, "x": 0, "y": 0,
+                             "w": img_w, "h": img_h}
                 return (crop_data, loaded, lm, img_w, img_h, fn, fp)
             mult = max(1, int(multiple))
             w = max(mult, (w // mult) * mult)
@@ -569,8 +586,8 @@ class AGSoft_Image_Crop_Plus:
             if lm.dim() == 2:
                 lm = lm.unsqueeze(0)
             cropped_mask = lm[:, min_y:min_y + h, min_x:min_x + w]
-            crop_data = {"original_image": loaded.clone(), "x": min_x, "y": min_y,
-                         "w": w, "h": h, "device": loaded.device}
+            crop_data = {"version": 1, "original_image": loaded, "x": min_x, "y": min_y,
+                         "w": w, "h": h}
             return (crop_data, cropped, cropped_mask, w, h, fn, fp)
         except Exception as e:
             raise RuntimeError(f"[AGSoft Image Crop Plus] Error / Ошибка: {e}") from e
@@ -620,8 +637,22 @@ class AGSoft_Crop_Stitch:
                 "feathering": ("INT", {
                     "default": 16, "min": 0, "max": 128, "step": 1,
                     "tooltip": (
-                        "Seam width for feather_blend.\n---\n"
-                        "Ширина плавного шва для feather_blend."
+                        "Seam width for feather_blend; multiplies with the mask "
+                        "when a mask is connected.\n---\n"
+                        "Ширина плавного шва для feather_blend; при подключённой "
+                        "маске перемножается с ней."
+                    ),
+                }),
+            },
+            "optional": {
+                "mask": ("MASK", {
+                    "tooltip": (
+                        "Optional blend mask, e.g. face_mask from AGSoft Crop Face. "
+                        "White = insert the processed frame, black = keep the original. "
+                        "Resized to the crop box automatically.\n---\n"
+                        "Опциональная маска вставки, например face_mask из AGSoft Crop Face. "
+                        "Белый = вставить обработанный кадр, чёрный = оставить оригинал. "
+                        "Автоматически ресайзится к боксу кропа."
                     ),
                 }),
             },
@@ -636,49 +667,67 @@ class AGSoft_Crop_Stitch:
     FUNCTION = "stitch"
 
     def stitch(self, crop_data: Dict[str, Any], image: torch.Tensor,
-               blend_mode: str = "feather_blend", feathering: int = 16) -> Tuple[torch.Tensor]:
+               blend_mode: str = "feather_blend", feathering: int = 16,
+               mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor]:
         if blend_mode == "poisson_blend (недоступен)":
             blend_mode = "paste"
         original = crop_data["original_image"]
         x, y = int(crop_data["x"]), int(crop_data["y"])
         w, h = int(crop_data["w"]), int(crop_data["h"])
-        device = crop_data.get("device", original.device)
         inp = image[0]
-        # Clamp the box to the original image bounds.
-        # Ограничиваем координаты размерами оригинального изображения.
+        # Clamp the box and keep it non-empty. / Клампим бокс и не даём ему обнулиться.
         orig_h, orig_w = original.shape[1], original.shape[2]
         x = max(0, min(x, orig_w - 1))
         y = max(0, min(y, orig_h - 1))
-        w = min(w, orig_w - x)
-        h = min(h, orig_h - y)
+        w = max(1, min(w, orig_w - x))
+        h = max(1, min(h, orig_h - y))
         # Auto-resize the processed frame to the box size.
         # Авто-ресайз обработанного кадра к размеру бокса.
         if inp.shape[0] != h or inp.shape[1] != w:
             inp = _resize_tensor(inp, w, h, "lanczos")
+        channels = int(original.shape[3])
         result = original.clone()
         orig_region = original[0, y:y + h, x:x + w, :].cpu().numpy()
         inp_region = inp[:h, :w, :].cpu().numpy()
-        if orig_region.shape[2] == 1:
-            orig_region = np.repeat(orig_region, 3, axis=2)
-        if inp_region.shape[2] == 1:
-            inp_region = np.repeat(inp_region, 3, axis=2)
+        orig_region = _match_channels_np(orig_region, channels)
+        inp_region = _match_channels_np(inp_region, channels)
+        # Optional mask limits the blend area (face oval from Crop Face).
+        # Опциональная маска ограничивает область вставки (овал лица из Crop Face).
+        mask_w = np.ones((h, w), dtype=np.float32)
+        if mask is not None:
+            m = mask[0] if mask.dim() == 3 else mask
+            if m.shape[0] != h or m.shape[1] != w:
+                m = _resize_tensor(m, w, h, "bilinear")
+            mask_w = np.clip(m[:h, :w].cpu().numpy().astype(np.float32), 0.0, 1.0)
         if blend_mode == "poisson_blend" and CV2_AVAILABLE:
             try:
-                src_u8 = (np.clip(inp_region, 0, 1) * 255).astype(np.uint8)
-                tgt_u8 = (np.clip(orig_region, 0, 1) * 255).astype(np.uint8)
-                mask_u8 = np.ones((h, w), dtype=np.uint8) * 255
-                center = (x + w // 2, y + h // 2)
+                src_u8 = (np.clip(inp_region[..., :3], 0, 1) * 255).astype(np.uint8)
+                tgt_u8 = (np.clip(orig_region[..., :3], 0, 1) * 255).astype(np.uint8)
+                if channels == 1:
+                    src_u8 = np.repeat(src_u8, 3, axis=2)
+                    tgt_u8 = np.repeat(tgt_u8, 3, axis=2)
+                mask_u8 = (mask_w * 255).astype(np.uint8)
+                # Center is relative to the region, not to the whole frame.
+                # Центр задаётся относительно области, а не всего кадра.
+                center = (w // 2, h // 2)
                 blended = cv2.seamlessClone(src_u8, tgt_u8, mask_u8, center, cv2.NORMAL_CLONE)
                 blended_np = blended.astype(np.float32) / 255.0
+                if channels == 4:
+                    blended_np = np.concatenate([blended_np, orig_region[..., 3:4]], axis=2)
+                elif channels == 1:
+                    blended_np = blended_np[..., :1]
             except Exception:
-                logger.warning("[AGSoft Crop Stitch] poisson failed, fallback to paste")
-                blended_np = inp_region
-        elif blend_mode == "feather_blend":
-            weight = _border_weight(h, w, feathering)[..., None]
-            blended_np = orig_region * (1.0 - weight) + inp_region * weight
+                logger.warning("[AGSoft Crop Stitch] poisson failed, fallback to mask blend")
+                weight = mask_w[..., None]
+                blended_np = orig_region * (1.0 - weight) + inp_region * weight
         else:
-            blended_np = inp_region
-        blended_tensor = torch.from_numpy(blended_np).to(device=device, dtype=original.dtype)
+            weight = mask_w
+            if blend_mode == "feather_blend":
+                weight = weight * _border_weight(h, w, feathering)
+            weight = weight[..., None]
+            blended_np = orig_region * (1.0 - weight) + inp_region * weight
+        blended_tensor = torch.from_numpy(blended_np).to(device=original.device,
+                                                         dtype=original.dtype)
         result[0, y:y + h, x:x + w, :] = blended_tensor
         return (result,)
 
