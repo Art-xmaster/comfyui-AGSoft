@@ -87,8 +87,7 @@ except Exception:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-print("[AGSoft Load Video] v11.23 loaded "
-      "(video_info returns absolute path, Open works for input files, lazy images/audio)")
+# print("[AGSoft Load Video] v11.23 loaded")
 
 SEEK_PRESET = "ultrafast"
 PROBE_TIMEOUT = 20
