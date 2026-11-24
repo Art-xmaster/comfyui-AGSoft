@@ -8,7 +8,7 @@ AGSoft_MiniMaxH3_Slice.py
 
 Описание / Description:
 Пара нод подготовки контекста для продолжения сюжета MiniMax H3.
-Обе отдают first_frame (самый последний кадр, всегда 4D IMAGE) для входа
+Обе отдают last_frame (самый последний кадр, всегда 4D IMAGE) для входа
 first_frame ноды MiniMax H3 Image to Video следующей сцены — так модель
 продолжает сюжет с той же внешностью, позой и сценой — и context_images
 (последние N кадров) для референсов и контроля движения.
@@ -19,7 +19,7 @@ Images Slice принимает УЖЕ декодированные IMAGE — п
 для превью/сохранения.
 
 A pair of nodes that prepare continuation context for MiniMax H3.
-Both output first_frame (the very last frame, always 4D IMAGE) for the
+Both output last_frame (the very last frame, always 4D IMAGE) for the
 first_frame input of the next scene's MiniMax H3 Image to Video node — this
 is how the model continues the story with the same character, pose and scene
 — and context_images (last N frames) for references and motion control.
@@ -30,25 +30,24 @@ instant and suits weak machines where the decode was already done for
 preview/saving.
 
 Возможности / Features:
-⚡ first_frame всегда 4D [B, H, W, C] — совместим с энкодером Qwen3VL
-   (иначе "too many values to unpack").
-   first_frame is always 4D [B, H, W, C] — compatible with the Qwen3VL encoder
-   (otherwise "too many values to unpack").
+⚡ last_frame всегда 4D [B, H, W, C] — совместим с энкодером Qwen3VL
+(иначе "too many values to unpack").
+last_frame is always 4D [B, H, W, C] — compatible with the Qwen3VL encoder
+(otherwise "too many values to unpack").
 ⚡ context_frames (1-124) регулирует размер контекста: больше кадров = лучше
-   консистентность движения, но больше токенов и VRAM.
-   context_frames (1-124) controls context size: more frames = better motion
-   consistency, but more tokens and VRAM.
+консистентность движения, но больше токенов и VRAM.
+context_frames (1-124) controls context size: more frames = better motion
+consistency, but more tokens and VRAM.
 ⚡ Кэш по содержимому входа: тот же латент не декодируется дважды, те же кадры
-   возвращаются теми же тензорами (стабильная память, без лишних аллокаций).
-   Content-keyed cache: the same latent is never decoded twice, identical frames
-   come back as the same tensors (stable memory, no extra allocations).
+возвращаются теми же тензорами (стабильная память, без лишних аллокаций).
+Content-keyed cache: the same latent is never decoded twice, identical frames
+come back as the same tensors (stable memory, no extra allocations).
 ⚡ Поддержка NestedTensor (видео+аудио) и IMAGE 4D/5D.
-   NestedTensor (video+audio) and 4D/5D IMAGE support.
+NestedTensor (video+audio) and 4D/5D IMAGE support.
 ⚡ JS не требуется — входы статические.
-   No JS required — static inputs.
-
+No JS required — static inputs.
 Автор / Author: AGSoft
-Дата / Date: 22.11.2026
+Дата / Date: 25.11.2026
 ==============================================================================
 """
 
@@ -59,7 +58,7 @@ from collections import OrderedDict
 
 import torch
 
-# print("[AGSoft MiniMaxH3 Slice] v11.22 loaded (context slicing with content-hash cache)")
+# print("[AGSoft MiniMaxH3 Slice] v11.25 loaded (context slicing with content-hash cache)")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -88,8 +87,8 @@ def _to_frames(img: torch.Tensor) -> torch.Tensor:
 
 def _slice_context(pixels: torch.Tensor, context_frames: int, tag: str) -> tuple:
     """
-    Отдает (first_frame, context_images) из 4D пикселей.
-    Returns (first_frame, context_images) from 4D pixels.
+    Отдает (last_frame, context_images) из 4D пикселей.
+    Returns (last_frame, context_images) from 4D pixels.
     """
     total = pixels.shape[0]
     ctx = min(context_frames, total)
@@ -100,9 +99,9 @@ def _slice_context(pixels: torch.Tensor, context_frames: int, tag: str) -> tuple
         )
     start = total - ctx  # срез по индексу: -0 вернул бы весь ролик / index slice: -0 means all
     # clone отвязывает результат от буфера всей сцены / clone detaches from the scene buffer
-    first_frame = pixels[-1:].clone()       # [1, H, W, C] — последний кадр / the very last frame
+    last_frame = pixels[-1:].clone()         # [1, H, W, C] — последний кадр / the very last frame
     context_images = pixels[start:].clone()  # [N, H, W, C] — последние N кадров / last N frames
-    return first_frame, context_images
+    return last_frame, context_images
 
 
 def _tensor_hash(t: torch.Tensor) -> str:
@@ -160,7 +159,7 @@ class AGSoftMiniMaxH3LatentSlice:
         "🎞️🧊AGSoft MiniMaxH3 Latent Slice.\n"
         "Cuts continuation context out of a completed MiniMax H3 scene latent. The node decodes "
         "the latent itself via the connected video VAE (NestedTensor supported: the 5D video part "
-        "is picked automatically, the audio part is ignored) and returns first_frame — the very "
+        "is picked automatically, the audio part is ignored) and returns last_frame — the very "
         "last frame as a 4D IMAGE for the first_frame input of the next scene's MiniMax H3 Image "
         "to Video node — plus context_images, the last N frames, for references / motion control. "
         "This is how the next scene continues the story: same character, pose, scene and camera. "
@@ -171,7 +170,7 @@ class AGSoftMiniMaxH3LatentSlice:
         "🎞️🧊AGSoft MiniMaxH3 Latent Slice.\n"
         "Вырезает контекст продолжения из готового латента сцены MiniMax H3. Нода сама декодирует "
         "латент через подключенный video VAE (NestedTensor поддерживается: видео-часть 5D берётся "
-        "автоматически, аудио-часть игнорируется) и возвращает first_frame — самый последний кадр "
+        "автоматически, аудио-часть игнорируется) и возвращает last_frame — самый последний кадр "
         "в формате 4D IMAGE для входа first_frame ноды MiniMax H3 Image to Video следующей сцены — "
         "плюс context_images, последние N кадров, для референсов и контроля движения. Так следующая "
         "сцена продолжает сюжет: те же персонаж, поза, сцена и камера. Используйте эту ноду, когда в "
@@ -229,7 +228,7 @@ class AGSoftMiniMaxH3LatentSlice:
         }
 
     RETURN_TYPES = ("IMAGE", "IMAGE")
-    RETURN_NAMES = ("first_frame", "context_images")
+    RETURN_NAMES = ("last_frame", "context_images")
     OUTPUT_TOOLTIPS = (
         "The very last frame as 4D IMAGE — into first_frame of the next scene.\n"
         "---\n"
@@ -255,11 +254,11 @@ class AGSoftMiniMaxH3LatentSlice:
             return (hit[0], hit[1])
         # Декодируем в пиксели и приводим к 4D / Decode to pixels and normalize to 4D
         pixels = _to_frames(vae.decode(vid))
-        first_frame, context_images = _slice_context(
+        last_frame, context_images = _slice_context(
             pixels, context_frames, "AGSoft MiniMaxH3 Latent Slice"
         )
-        _cache_put(key, (first_frame, context_images, weakref.ref(vae)))
-        return (first_frame, context_images)
+        _cache_put(key, (last_frame, context_images, weakref.ref(vae)))
+        return (last_frame, context_images)
 
 
 class AGSoftMiniMaxH3ImagesSlice:
@@ -272,7 +271,7 @@ class AGSoftMiniMaxH3ImagesSlice:
         "🎞️🖼️AGSoft MiniMaxH3 Images Slice.\n"
         "Cuts continuation context out of ALREADY decoded frames (IMAGE) of the previous scene — "
         "no VAE involved, pure tensor slicing, so it is instant and memory-cheap even on weak GPUs. "
-        "Returns first_frame — the very last frame as a 4D IMAGE for the first_frame input of the "
+        "Returns last_frame — the very last frame as a 4D IMAGE for the first_frame input of the "
         "next scene's MiniMax H3 Image to Video node — plus context_images, the last N frames, for "
         "references / motion control. Use this node whenever the workflow already decodes the scene "
         "(preview, AGSoft Video Save, RTX VSR etc.): since the decode was paid anyway, slicing "
@@ -281,7 +280,7 @@ class AGSoftMiniMaxH3ImagesSlice:
         "🎞️🖼️AGSoft MiniMaxH3 Images Slice.\n"
         "Вырезает контекст продолжения из УЖЕ декодированных кадров (IMAGE) предыдущей сцены — без "
         "VAE, чистая нарезка тензора, поэтому мгновенно и дёшево по памяти даже на слабых GPU. "
-        "Возвращает first_frame — самый последний кадр в формате 4D IMAGE для входа first_frame "
+        "Возвращает last_frame — самый последний кадр в формате 4D IMAGE для входа first_frame "
         "ноды MiniMax H3 Image to Video следующей сцены — плюс context_images, последние N кадров, "
         "для референсов и контроля движения. Используйте эту ноду, когда ворк уже декодирует сцену "
         "(превью, AGSoft Video Save, RTX VSR и т.п.): раз декод всё равно уже оплачен, нарезка "
@@ -324,7 +323,7 @@ class AGSoftMiniMaxH3ImagesSlice:
         }
 
     RETURN_TYPES = ("IMAGE", "IMAGE")
-    RETURN_NAMES = ("first_frame", "context_images")
+    RETURN_NAMES = ("last_frame", "context_images")
     OUTPUT_TOOLTIPS = (
         "The very last frame as 4D IMAGE — into first_frame of the next scene.\n"
         "---\n"
@@ -345,11 +344,11 @@ class AGSoftMiniMaxH3ImagesSlice:
         hit = _cache_get(key)
         if hit is not None:
             return (hit[0], hit[1])
-        first_frame, context_images = _slice_context(
+        last_frame, context_images = _slice_context(
             pixels, context_frames, "AGSoft MiniMaxH3 Images Slice"
         )
-        _cache_put(key, (first_frame, context_images, None))
-        return (first_frame, context_images)
+        _cache_put(key, (last_frame, context_images, None))
+        return (last_frame, context_images)
 
 
 # Маппинг для ComfyUI / ComfyUI mappings
