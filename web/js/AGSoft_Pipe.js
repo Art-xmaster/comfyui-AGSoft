@@ -19,6 +19,8 @@ AGSoft_Pipe.js
       Grouped name presets, duplicates get a number, active row is highlighted
     ⚡ Link: список записей тянется из вышестоящего Master обходом графа
       Link: the entry list is pulled from the upstream Master by a graph walk
+    ⚡ Шина проходит через AGSoft Set/Get: список записей не теряется
+      The bus passes through AGSoft Set/Get: the entry list is preserved
     ⚡ Тип и подпись выхода повторяют выбранную запись (нативные цвета типов)
       Output type and label follow the selected entry (native type colors)
     ⚡ Размер ноды считается от содержимого: растёт и сжимается, ширина своя
@@ -37,18 +39,20 @@ AGSoft_Pipe.js
       workflow load without touching bus values.
 
 Автор / Author: AGSoft
-Дата / Date: 20.11.2026
+Дата / Date: 26.11.2026
 ==============================================================================
 */
 
 import { app } from "../../../scripts/app.js";
 
-console.log("[AGSoft Pipe] JS extension loaded v11.20");
+console.log("[AGSoft Pipe] JS extension loaded v11.26.4");
 
 const MAX_SLOTS = 32;
 const MAX_OUT = 32;
 const MASTER_CLASS = "AGSoftPipeMaster";
 const LINK_CLASS = "AGSoftPipeLink";
+const WIRE_SET_CLASS = "AGSoftSet";
+const WIRE_GET_CLASS = "AGSoftGet";
 const BUS_TYPE = "AGS_PIPE";
 const EMPTY = " ";
 const NONE_LABEL = "— none —";
@@ -104,6 +108,19 @@ function dirty() {
     app.graph.setDirtyCanvas(true, true);
 }
 
+// Link storage differs across frontend versions: Map, plain object or getter.
+// Хранилище линков отличается в версиях фронтенда: Map, объект или геттер.
+function linkById(graph, id) {
+    if (id == null || !graph) return null;
+    if (graph.getLink) {
+        const viaApi = graph.getLink(id);
+        if (viaApi) return viaApi;
+    }
+    const store = graph._links || graph.links;
+    if (!store) return null;
+    return store instanceof Map ? store.get(id) : store[id] || null;
+}
+
 // Rows have fixed heights, so the panel size is pure arithmetic and never drifts.
 // Строки фиксированной высоты, поэтому размер панели — арифметика без дрейфа.
 function panelHeight(rows) {
@@ -132,42 +149,68 @@ function fitNodeHeight(node) {
 }
 
 function upstreamNode(node, slot) {
-    const input = node.inputs && node.inputs[slot];
+    const g = (node && node.graph) || app.graph;
+    const input = node && node.inputs && node.inputs[slot];
     if (!input || input.link == null) return null;
-    const link = app.graph.links[input.link];
+    const link = linkById(g, input.link);
     if (!link) return null;
-    return app.graph.getNodeById(link.origin_id);
+    return g.getNodeById(link.origin_id);
 }
 
 function slotType(node, slot) {
-    const input = node.inputs && node.inputs[slot];
+    const g = (node && node.graph) || app.graph;
+    const input = node && node.inputs && node.inputs[slot];
     if (!input || input.link == null) return "*";
-    const link = app.graph.links[input.link];
+    const link = linkById(g, input.link);
     if (!link) return "*";
-    const src = app.graph.getNodeById(link.origin_id);
+    const src = g.getNodeById(link.origin_id);
     const out = src && src.outputs && src.outputs[link.origin_slot];
     return (out && out.type) || "*";
 }
 
 function downstreamType(node, outIndex) {
-    const out = node.outputs && node.outputs[outIndex];
+    const g = (node && node.graph) || app.graph;
+    const out = node && node.outputs && node.outputs[outIndex];
     if (!out || !out.links || !out.links.length) return "";
-    const link = app.graph.links[out.links[0]];
+    const link = linkById(g, out.links[0]);
     if (!link) return "";
-    const target = app.graph.getNodeById(link.target_id);
+    const target = g.getNodeById(link.target_id);
     const input = target && target.inputs && target.inputs[link.target_slot];
     return (input && input.type) || "";
+}
+
+// A Get stands in for the Set with the same name: the walk hops over the pair.
+// Get заменяет Set с тем же именем: обход перепрыгивает через пару.
+function wirelessSet(node) {
+    const w = getWidget(node, "name");
+    const name = w ? String(w.value || "").trim() : "";
+    if (!name) return null;
+    const g = (node && node.graph) || app.graph;
+    for (const n of g._nodes || []) {
+        if (n.comfyClass !== WIRE_SET_CLASS && n.type !== WIRE_SET_CLASS) continue;
+        const sw = getWidget(n, "name");
+        if (sw && String(sw.value || "").trim() === name) return n;
+    }
+    return null;
 }
 
 // Full bus entry list visible at this point of the chain (model-only walk).
 // Полный список записей шины в этой точке цепочки (обход только по модели).
 function resolveEntries(node, depth) {
     if (!node || depth > 16) return [];
-    if (node.comfyClass === MASTER_CLASS) {
+    const kind = node.comfyClass || node.type;
+    if (kind === MASTER_CLASS) {
         const entries = readMeta(node).entries;
         return Array.isArray(entries) ? entries : [];
     }
-    if (node.comfyClass === LINK_CLASS) {
+    if (kind === LINK_CLASS) {
+        return resolveEntries(upstreamNode(node, 0), depth + 1);
+    }
+    if (kind === WIRE_GET_CLASS) {
+        const setNode = wirelessSet(node);
+        return setNode ? resolveEntries(upstreamNode(setNode, 0), depth + 1) : [];
+    }
+    if (kind === WIRE_SET_CLASS) {
         return resolveEntries(upstreamNode(node, 0), depth + 1);
     }
     return [];
