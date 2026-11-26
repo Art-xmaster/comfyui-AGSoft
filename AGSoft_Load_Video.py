@@ -87,7 +87,7 @@ except Exception:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# print("[AGSoft Load Video] v11.23 loaded")
+# print("[AGSoft Load Video] v11.27 loaded (robust output-link scan, audio fallback)")
 
 SEEK_PRESET = "ultrafast"
 PROBE_TIMEOUT = 20
@@ -313,7 +313,11 @@ def _used_output_indices(prompt, unique_id):
         for value in inputs.values():
             if isinstance(value, (list, tuple)) and len(value) == 2:
                 src, index = value[0], value[1]
-                if isinstance(src, str) and src == me and isinstance(index, int):
+                try:
+                    index = int(index)
+                except (TypeError, ValueError):
+                    continue
+                if str(src) == me:
                     used.add(index)
     return used
 
@@ -792,6 +796,10 @@ class AGSoftLoadVideo:
                 images = torch.zeros((0, 0, 0, 3), dtype=torch.float32)
         elif need_audio:
             audio = await _decode_audio_only(path)
+        if need_audio and audio is None and need_images and path:
+            audio = await _decode_audio_only(path)
+        if need_audio and audio is None:
+            audio = {"waveform": torch.zeros((1, 1, 1)), "sample_rate": AUDIO_RATE}
 
         decoded = (images is not None and isinstance(images, torch.Tensor)
                    and images.dim() == 4 and images.shape[0] > 0)
