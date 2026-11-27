@@ -9,7 +9,8 @@ AGSoft_Multi_LoRA_Loader.py
 применяет тумблер каждого слота). Выбор лор — деревом папок с фильтром;
 инфо-диалог показывает данные CivitAI (хэш, страница, триггеры, примеры с
 промптами); локальные заметки (Name / Strength Min / Strength Max / Notes)
-редактируются и хранятся по каждой LoRA.
+редактируются и хранятся по каждой LoRA. Пресеты стека сохраняются,
+загружаются и удаляются по имени (user/agsoft/lora_presets).
 
 Compact stack of up to 20 LoRAs in one node: per-slot toggle, file chooser,
 model & clip strength. Row count via "+ Add LoRA" / "– Remove"; the
@@ -17,7 +18,8 @@ model & clip strength. Row count via "+ Add LoRA" / "– Remove"; the
 own toggle). Folder-tree LoRA chooser with filter; the info dialog shows
 CivitAI data (hash, page, triggers, examples with prompts); local notes
 (Name / Strength Min / Strength Max / Notes) are editable and stored per
-LoRA.
+LoRA. Stack presets are saved, loaded and deleted by name
+(user/agsoft/lora_presets).
 
 Возможности / Features:
 ⚡ До 20 слотов; строка: тумблер, лора, ◄ сила model ►, ◄ сила clip ►, ℹ.
@@ -38,6 +40,12 @@ LoRA.
   /agsoft/lora_list) — без перезагрузки браузера.
   The LoRA list refreshes on every chooser open (endpoint /agsoft/lora_list)
   — no browser restart needed.
+⚡ Пресеты стека: именованные снимки слотов, подтверждение перезаписи и
+  удаления, живой список при открытии; имена лор возвращаются к родному
+  написанию списка, поэтому пресет переживает перезагрузку.
+  Stack presets: named slot snapshots, overwrite/delete confirmation, live
+  list on open; lora names are mapped back to the list's native spelling so
+  presets survive a restart.
 ⚡ Контролы следуют цвету ноды (CSS-переменные); один DOM-контейнер без
   невидимых зон перехвата мыши. Controls follow the node color (CSS vars);
   single DOM container with no invisible input-blocking zones.
@@ -47,7 +55,7 @@ LoRA.
   strengths skipped. Works headless/API without JS.
 
 Автор / Author: AGSoft
-Дата / Date: 02.09.2026
+Дата / Date: 27.11.2026
 """
 
 import hashlib
@@ -65,10 +73,7 @@ from aiohttp import web
 from server import PromptServer
 
 logger = logging.getLogger(__name__)
-logger.info(
-    "[AGSoft Multi LoRA Loader] v1.14 loaded "
-    "(20 slots, Toggle All, CivitAI info dialog, live lora list, safe patching)"
-)
+# logger.info( "[AGSoft Multi LoRA Loader] v1.17 loaded (20 slots, Toggle All, CivitAI info dialog, live lora list, stack presets)")
 
 MAX_LORA_SLOTS = 20
 LORA_NONE = "none"
@@ -80,6 +85,9 @@ EDITABLE_META_FIELDS = ("name", "strength_min", "strength_max", "notes")
 HASH_CACHE_LIMIT = 64
 HASH_CHUNK_SIZE = 1024 * 1024
 ZERO_STRENGTH_EPS = 1e-9
+PRESET_NAME_MAX = 64
+PRESET_VERSION = 1
+PRESET_SUFFIX = ".json"
 _URL_SAFE = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~"
 )
@@ -97,10 +105,30 @@ def _sanitize_lora_name(name: Any) -> str:
     return clean
 
 
+def _lora_name_key(name: Any) -> str:
+    """Separator-insensitive comparison key for LoRA names (EN) /
+    Ключ сравнения имён LoRA без учёта разделителей пути (RU)."""
+    return str(name or "").replace("\\", "/").strip()
+
+
+def _lora_native_name(name: Any) -> str:
+    """Map a stored name back to the exact folder_paths spelling (EN) /
+    Возвращает имя в точном написании списка folder_paths (RU)."""
+    key = _lora_name_key(name)
+    if not key:
+        return ""
+    if key == LORA_NONE:
+        return LORA_NONE
+    for native in _get_lora_options():
+        if _lora_name_key(native) == key:
+            return native
+    return _sanitize_lora_name(name)
+
+
 def _resolve_lora_path(name: str) -> Optional[str]:
     """Resolve a LoRA name strictly inside the registered loras roots (EN) /
     Резолвит имя LoRA строго внутри зарегистрированных корней loras (RU)."""
-    clean = _sanitize_lora_name(name)
+    clean = _lora_native_name(name)
     if not clean:
         return None
     try:
@@ -254,6 +282,100 @@ def _sha256_of(path: str) -> str:
     return result
 
 
+def _sanitize_preset_name(name: Any) -> str:
+    """Keep unicode letters/digits, space, underscore, hyphen; cap length (EN) /
+    Оставляет unicode-буквы/цифры, пробел, подчёркивание, дефис; режет длину (RU)."""
+    clean = "".join(
+        ch for ch in str(name or "").strip()
+        if ch.isalnum() or ch in " _-"
+    ).strip()
+    return clean[:PRESET_NAME_MAX]
+
+
+def _presets_dir() -> str:
+    """Per-user preset root, survives pack updates (EN) /
+    Пользовательский корень пресетов, переживает обновление пака (RU)."""
+    try:
+        base = folder_paths.get_user_directory()
+    except Exception as e:
+        logger.warning(f"[AGSoft Multi LoRA Loader] user dir unavailable: {e}")
+        base = folder_paths.get_temp_directory()
+    directory = os.path.join(base, "agsoft", "lora_presets")
+    try:
+        os.makedirs(directory, exist_ok=True)
+    except OSError as e:
+        logger.error(f"[AGSoft Multi LoRA Loader] presets dir create failed: {e}")
+    return directory
+
+
+def _preset_path(name: str) -> Optional[str]:
+    """Resolve a preset file strictly inside the presets root (EN) /
+    Резолвит файл пресета строго внутри корня пресетов (RU)."""
+    clean = _sanitize_preset_name(name)
+    if not clean:
+        return None
+    root = os.path.realpath(_presets_dir())
+    candidate = os.path.realpath(os.path.join(root, clean + PRESET_SUFFIX))
+    try:
+        if os.path.commonpath([root, candidate]) != root:
+            return None
+    except ValueError as e:
+        logger.warning(f"[AGSoft Multi LoRA Loader] preset path rejected: {e}")
+        return None
+    return candidate
+
+
+def _default_preset_slot() -> Dict[str, Any]:
+    return {
+        "enabled": True,
+        "lora": LORA_NONE,
+        "model_strength": 1.0,
+        "clip_strength": 1.0,
+    }
+
+
+def _clamp_strength(value: Any) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 1.0
+    if not math.isfinite(number):
+        return 1.0
+    return max(STRENGTH_MIN, min(STRENGTH_MAX, number))
+
+
+def _normalize_preset(data: Any) -> Dict[str, Any]:
+    """Validate and clip a preset payload to the node's slot contract (EN) /
+    Валидирует и обрезает payload пресета под контракт слотов ноды (RU)."""
+    if not isinstance(data, dict):
+        data = {}
+    raw_slots = data.get("slots")
+    if not isinstance(raw_slots, list):
+        raw_slots = []
+    slots: List[Dict[str, Any]] = []
+    for item in raw_slots[:MAX_LORA_SLOTS]:
+        if not isinstance(item, dict):
+            continue
+        lora = _lora_native_name(item.get("lora", LORA_NONE))
+        slots.append(
+            {
+                "enabled": _slot_enabled(item.get("enabled", True)),
+                "lora": lora or LORA_NONE,
+                "model_strength": _clamp_strength(item.get("model_strength", 1.0)),
+                "clip_strength": _clamp_strength(item.get("clip_strength", 1.0)),
+            }
+        )
+    try:
+        count = int(data.get("active_loras", len(slots)))
+    except (TypeError, ValueError):
+        count = len(slots)
+    count = max(0, min(count, MAX_LORA_SLOTS))
+    slots = slots[:count]
+    while len(slots) < count:
+        slots.append(_default_preset_slot())
+    return {"version": PRESET_VERSION, "active_loras": count, "slots": slots}
+
+
 @PromptServer.instance.routes.get("/agsoft/lora_meta")
 async def agsoft_lora_meta(request: web.Request) -> web.Response:
     name = _sanitize_lora_name(request.query.get("name", ""))
@@ -331,6 +453,89 @@ async def agsoft_lora_list(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "list": [x for x in items if x]})
 
 
+@PromptServer.instance.routes.get("/agsoft/lora_presets")
+async def agsoft_lora_presets(request: web.Request) -> web.Response:
+    """Preset names in case-insensitive order (EN) /
+    Имена пресетов в порядке без учёта регистра (RU)."""
+    try:
+        entries = os.listdir(_presets_dir())
+    except OSError as e:
+        logger.warning(f"[AGSoft Multi LoRA Loader] presets list failed: {e}")
+        entries = []
+    names = [
+        item[: -len(PRESET_SUFFIX)]
+        for item in entries
+        if item.endswith(PRESET_SUFFIX)
+    ]
+    names.sort(key=str.lower)
+    return web.json_response({"ok": True, "list": names})
+
+
+@PromptServer.instance.routes.get("/agsoft/lora_preset")
+async def agsoft_lora_preset(request: web.Request) -> web.Response:
+    name = _sanitize_preset_name(request.query.get("name", ""))
+    path = _preset_path(name) if name else None
+    if not path or not os.path.isfile(path):
+        return web.json_response({"ok": False, "error": "preset not found"})
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception as e:
+        logger.warning(f"[AGSoft Multi LoRA Loader] preset load failed: {e}")
+        return web.json_response({"ok": False, "error": "preset read failed"})
+    return web.json_response(
+        {"ok": True, "name": name, "preset": _normalize_preset(data)}
+    )
+
+
+@PromptServer.instance.routes.post("/agsoft/lora_preset_save")
+async def agsoft_lora_preset_save(request: web.Request) -> web.Response:
+    if not _is_loopback(request):
+        return web.json_response({"ok": False, "error": "local only"}, status=403)
+    try:
+        data = await request.json()
+    except Exception as e:
+        logger.warning(f"[AGSoft Multi LoRA Loader] bad preset json: {e}")
+        return web.json_response({"ok": False, "error": "bad json"})
+    if not isinstance(data, dict):
+        return web.json_response({"ok": False, "error": "bad json"})
+    name = _sanitize_preset_name(data.get("name", ""))
+    path = _preset_path(name) if name else None
+    if not path:
+        return web.json_response({"ok": False, "error": "bad preset name"})
+    preset = _normalize_preset(data)
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(preset, fh, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"[AGSoft Multi LoRA Loader] preset save failed: {e}")
+        return web.json_response({"ok": False, "error": "preset write failed"})
+    return web.json_response({"ok": True, "name": name})
+
+
+@PromptServer.instance.routes.post("/agsoft/lora_preset_delete")
+async def agsoft_lora_preset_delete(request: web.Request) -> web.Response:
+    if not _is_loopback(request):
+        return web.json_response({"ok": False, "error": "local only"}, status=403)
+    try:
+        data = await request.json()
+    except Exception as e:
+        logger.warning(f"[AGSoft Multi LoRA Loader] bad preset json: {e}")
+        return web.json_response({"ok": False, "error": "bad json"})
+    if not isinstance(data, dict):
+        return web.json_response({"ok": False, "error": "bad json"})
+    name = _sanitize_preset_name(data.get("name", ""))
+    path = _preset_path(name) if name else None
+    if not path or not os.path.isfile(path):
+        return web.json_response({"ok": False, "error": "preset not found"})
+    try:
+        os.remove(path)
+    except OSError as e:
+        logger.error(f"[AGSoft Multi LoRA Loader] preset delete failed: {e}")
+        return web.json_response({"ok": False, "error": "preset delete failed"})
+    return web.json_response({"ok": True, "name": name})
+
+
 class AGSoftMultiLoraLoader:
     """Compact stack of up to 20 LoRAs with per-slot controls (EN) /
     Компактный стек до 20 LoRA с поконтрольным управлением по слотам (RU)."""
@@ -351,6 +556,8 @@ class AGSoftMultiLoraLoader:
         "per LoRA; Strength Min/Max clamp the row steppers.\n"
         "The LoRA list is fetched live on every chooser open — newly downloaded files appear without "
         "a browser restart.\n"
+        "Stack presets: save / load / delete named snapshots of the active slots, with overwrite and "
+        "delete confirmation; presets live in the user directory and survive pack updates.\n"
         "---\n"
         "🧩 AGSoft Multi LoRA Loader.\n"
         "До 20 LoRA в одной компактной ноде. На слот: тумблер, выбор LoRA, сила model, сила clip, "
@@ -362,6 +569,9 @@ class AGSoftMultiLoraLoader:
         "хранящиеся по каждой LoRA; Strength Min/Max ограничивают степеры строки.\n"
         "Список лор запрашивается вживую при каждом открытии chooser'а — свеже скачанные файлы видны "
         "без перезагрузки браузера.\n"
+        "Пресеты стека: сохранение / загрузка / удаление именованных снимков активных слотов с "
+        "подтверждением перезаписи и удаления; пресеты лежат в пользовательской папке и переживают "
+        "обновление пака.\n"
     )
 
     @classmethod
@@ -487,12 +697,12 @@ class AGSoftMultiLoraLoader:
             return "active_loras must be a number."
         if count < 0 or count > MAX_LORA_SLOTS:
             return f"active_loras must be between 0 and {MAX_LORA_SLOTS}."
-        available = set(_get_lora_options())
+        available = {_lora_name_key(x) for x in _get_lora_options()}
         for i in range(1, count + 1):
             if not _slot_enabled(kwargs.get(f"enabled_{i}", True)):
                 continue
             name = str(kwargs.get(f"lora_{i}", LORA_NONE))
-            if name and name != LORA_NONE and name not in available:
+            if name and name != LORA_NONE and _lora_name_key(name) not in available:
                 return f"LoRA slot {i} is enabled but not installed: {name}"
             for key, label in (
                 (f"model_strength_{i}", "model strength"),
