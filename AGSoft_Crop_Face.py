@@ -73,7 +73,7 @@ automatically; a missing package init file is created on the fly.
 ⚡ scale_factor, независимый сдвиг по X/Y, пресеты пропорций, divisible_by.
   scale_factor, independent X/Y shift, aspect presets, divisible_by.
 Автор / Author: AGSoft
-Дата / Date: 21.11.2026
+Дата / Date: 27.11.2026
 ==============================================================================
 """
 
@@ -137,7 +137,7 @@ def _load_retinaface() -> Tuple[bool, Any]:
 
 RETINAFACE_AVAILABLE, Pytorch_RetinaFace = _load_retinaface()
 if RETINAFACE_AVAILABLE:
-    logger.info("[AGSoft Crop Face] RetinaFace ready / RetinaFace готов")
+    logger.info("[AGSoft Crop Face] v2006.11.27 loaded / RetinaFace ready")
 
 
 class AGSoftCropFace:
