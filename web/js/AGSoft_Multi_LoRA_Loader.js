@@ -5,27 +5,33 @@
 //
 // ⚡ Компактные строки слотов в одном DOM-контейнере (без невидимых зон
 //   перехвата мыши): тумблер, выбор лоры, ◄ сила model ►, ◄ сила clip ►, ℹ.
-// ⚡ Выбор лор деревом папок с фильтром (как файловый менеджер); список лор
-//   запрашивается с сервера при каждом открытии — новые файлы видны сразу,
-//   без перезагрузки браузера.
+// ⚡ Выбор лор деревом папок с фильтром; список лор запрашивается с сервера
+//   при каждом открытии — новые файлы видны сразу, без перезагрузки браузера.
 // ⚡ Горизонтальные степеры силы: ◄/► всегда видны, клик ±0.05, Shift ±0.01,
-//   ручной ввод сохранён.
+//   ручной ввод сохранён и ограничен min/max.
 // ⚡ Контекстное меню строки (правый клик): Show Info / Toggle On-Off /
 //   Move Up / Move Down / Remove.
-// ⚡ Toggle All — простое действие: поставил = все вкл, снял = все выкл;
-//   состояние синхронизировано с отдельными тумблерами (indeterminate = часть).
-// ⚡ Тумблеры в состоянии "вкл" подсвечены приглушённым цветом, не совпадающим
-//   с цветом ноды (комплементарный оттенок; для серой ноды — стальной голубой).
-// ⚡ Тултип кнопки выбора лоры показывает полное имя выбранного файла.
+// ⚡ Toggle All: поставил = все вкл, снял = все выкл; indeterminate = часть.
+// ⚡ Тумблеры "вкл" подсвечены приглушённым цветом, не совпадающим с цветом
+//   ноды (комплементарный оттенок; для серой ноды — стальной голубой).
 // ⚡ Инфо-диалог CivitAI: fetch по SHA256 → страница / триггеры / примеры
 //   (img + video, 📝 промпт с chips steps/cfg/sampler); редактируемые
 //   локальные заметки; Strength Min/Max ограничивают степеры строки.
+// ⚡ Пресеты стека: 💾 Save Preset / 📂 Presets; именованные снимки активных
+//   слотов, подтверждение перезаписи и удаления, живой список при открытии.
+// ⚡ Память слотов: снимок (active_loras + 20 слотов) пишется в
+//   node.properties при каждом изменении и в onSerialize; в onConfigure
+//   снимок сверяется с нативными значениями и восстанавливается единым
+//   путём применения — пресеты и ручной выбор переживают перезагрузку.
+// ⚡ Имена лор из пресета/снапшота возвращаются к родному написанию списка
+//   (разделители пути могут отличаться), поэтому combo-options и серверная
+//   валидация видят тот же файл, что и при ручном выборе.
 // ⚡ "View on Civitai" всегда открывает абсолютный URL CivitAI в новой
 //   вкладке (fallback — страница поиска), никогда не текущую страницу.
 // ⚡ Контролы следуют цвету ноды через CSS-переменные (--ags-*).
 //
 // Author: AGSoft
-// Date: 02.09.2026
+// Date: 27.11.2026
 // ==============================================================================
 import { app } from "../../../scripts/app.js";
 import { api } from "../../../scripts/api.js";
@@ -39,10 +45,13 @@ const GAP = 4;
 const STEP_W = 76;
 const LORA_NONE = "none";
 const NONE_LABEL = "None";
+const STRENGTH_MIN = -10;
+const STRENGTH_MAX = 10;
+const SNAPSHOT_KEY = "agsoft_lora_slots";
 
 console.log(
-    "[AGSoft Multi LoRA Loader] JS extension loaded v1.14 " +
-    "(live LoRA list on chooser open, no browser restart needed)"
+    "[AGSoft Multi LoRA Loader] JS extension loaded v1.17 " +
+    "(native lora name mapping, slot snapshot persistence)"
 );
 
 // ------------------------------------------------------------------------------
@@ -312,6 +321,117 @@ const EXT_CSS = `
         color: #999;
         font-style: italic;
     }
+    .agsoft-p-panel {
+        position: fixed;
+        z-index: 10003;
+        background: #2a2a2a;
+        border: 1px solid #555;
+        border-radius: 6px;
+        padding: 10px;
+        width: 240px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, .6);
+    }
+    .agsoft-p-label {
+        color: #bbb;
+        font-size: 11px;
+    }
+    .agsoft-p-input {
+        background: #222;
+        color: #ddd;
+        border: 1px solid #555;
+        border-radius: 4px;
+        padding: 5px 8px;
+        font-size: 12px;
+        outline: none;
+    }
+    .agsoft-p-input:focus {
+        border-color: #7cb7ff;
+    }
+    .agsoft-p-btns {
+        display: flex;
+        gap: 6px;
+    }
+    .agsoft-p-btns button {
+        flex: 1;
+        background: #4a4a4a;
+        color: #eee;
+        border: 1px solid #5a5a5a;
+        border-radius: 4px;
+        height: 22px;
+        cursor: pointer;
+        font-size: 11px;
+    }
+    .agsoft-p-btns button:hover {
+        background: #5a5a5a;
+    }
+    .agsoft-p-msg {
+        font-size: 11px;
+        color: #9c9;
+    }
+    .agsoft-p-msg:empty {
+        display: none;
+    }
+    .agsoft-p-msg.err {
+        color: #ff8080;
+    }
+    .agsoft-p-list {
+        position: fixed;
+        z-index: 10003;
+        background: #2a2a2a;
+        border: 1px solid #555;
+        border-radius: 6px;
+        width: 300px;
+        max-width: 92vw;
+        max-height: 320px;
+        overflow: auto;
+        padding: 4px;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, .6);
+    }
+    .agsoft-p-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 6px;
+        border-radius: 4px;
+    }
+    .agsoft-p-row:hover {
+        background: #3a3a3a;
+    }
+    .agsoft-p-name {
+        flex: 1;
+        min-width: 0;
+        color: #ddd;
+        font-size: 12px;
+        cursor: pointer;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .agsoft-p-row.confirm .agsoft-p-name {
+        cursor: default;
+        color: #ffb0b0;
+    }
+    .agsoft-p-del,
+    .agsoft-p-row.confirm button {
+        background: transparent;
+        border: none;
+        color: #ccc;
+        cursor: pointer;
+        font-size: 12px;
+        padding: 0 2px;
+    }
+    .agsoft-p-del:hover {
+        color: #ff8080;
+    }
+    .agsoft-p-empty {
+        padding: 10px;
+        color: #999;
+        font-size: 12px;
+        text-align: center;
+    }
     .agsoft-d-overlay {
         position: fixed;
         inset: 0;
@@ -534,6 +654,9 @@ const ESC_MAP = {
 };
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ESC_MAP[c]);
 
+// Path separators differ between the stored preset and the live list.
+const loraKey = (s) => String(s ?? "").replace(/\\/g, "/").trim();
+
 // ------------------------------------------------------------------------------
 // Theme sync
 // ------------------------------------------------------------------------------
@@ -630,10 +753,31 @@ const applyTheme = (node, root) => {
 };
 
 // ------------------------------------------------------------------------------
-// Global dismissal
+// Overlay placement / global dismissal
 // ------------------------------------------------------------------------------
+// The rAF closure keeps its own element reference, so a panel closed before
+// the next frame cannot crash the repositioning pass.
+const placeNear = (el, anchorEl) => {
+    const r = anchorEl.getBoundingClientRect();
+    el.style.left = Math.max(4, r.left) + "px";
+    el.style.top = (r.bottom + 4) + "px";
+    requestAnimationFrame(() => {
+        const cr = el.getBoundingClientRect();
+        if (cr.right > window.innerWidth) {
+            el.style.left = Math.max(4, window.innerWidth - cr.width - 8) + "px";
+        }
+        if (cr.bottom > window.innerHeight) {
+            const above = r.top - cr.height - 4;
+            el.style.top =
+                (above > 4 ? above : Math.max(4, window.innerHeight - cr.height - 8)) + "px";
+        }
+    });
+};
+
 let ctxMenuEl = null;
 let chooserEl = null;
+let presetPanelEl = null;
+let presetListEl = null;
 
 const hideRowMenu = () => {
     if (ctxMenuEl) {
@@ -649,6 +793,20 @@ const hideChooser = () => {
     }
 };
 
+const hidePresetPanel = () => {
+    if (presetPanelEl) {
+        presetPanelEl.remove();
+        presetPanelEl = null;
+    }
+};
+
+const hidePresetList = () => {
+    if (presetListEl) {
+        presetListEl.remove();
+        presetListEl = null;
+    }
+};
+
 document.addEventListener("pointerdown", (e) => {
     if (ctxMenuEl && !ctxMenuEl.contains(e.target)) {
         hideRowMenu();
@@ -660,12 +818,28 @@ document.addEventListener("pointerdown", (e) => {
     ) {
         hideChooser();
     }
+    if (
+        presetPanelEl &&
+        !presetPanelEl.contains(e.target) &&
+        !e.target.closest(".agsoft-p-save-btn")
+    ) {
+        hidePresetPanel();
+    }
+    if (
+        presetListEl &&
+        !presetListEl.contains(e.target) &&
+        !e.target.closest(".agsoft-p-list-btn")
+    ) {
+        hidePresetList();
+    }
 }, true);
 
 document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
         hideRowMenu();
         hideChooser();
+        hidePresetPanel();
+        hidePresetList();
     }
 }, true);
 
@@ -695,6 +869,22 @@ const showRowMenu = (x, y, items) => {
     if (r.bottom > window.innerHeight) {
         ctxMenuEl.style.top = Math.max(4, window.innerHeight - r.height - 8) + "px";
     }
+};
+
+// ------------------------------------------------------------------------------
+// Live LoRA list (shared by chooser and preset apply)
+// ------------------------------------------------------------------------------
+const fetchLiveLoraList = async () => {
+    try {
+        const resp = await fetch(api.apiURL("/agsoft/lora_list"));
+        const data = await resp.json();
+        if (data && data.ok && Array.isArray(data.list)) {
+            return data.list;
+        }
+    } catch (e) {
+        console.warn("[AGSoft Multi LoRA Loader] lora list fetch failed:", e);
+    }
+    return null;
 };
 
 // ------------------------------------------------------------------------------
@@ -728,21 +918,7 @@ const showChooser = (anchorEl, paths, noneVal, current, onPick) => {
     list.className = "agsoft-lora-chooser-list";
     chooserEl.append(filter, list);
     document.body.appendChild(chooserEl);
-    const r = anchorEl.getBoundingClientRect();
-    chooserEl.style.left = Math.max(4, r.left) + "px";
-    chooserEl.style.top = (r.bottom + 4) + "px";
-    requestAnimationFrame(() => {
-        const cr = chooserEl.getBoundingClientRect();
-        if (cr.right > window.innerWidth) {
-            chooserEl.style.left =
-                Math.max(4, window.innerWidth - cr.width - 8) + "px";
-        }
-        if (cr.bottom > window.innerHeight) {
-            const above = r.top - cr.height - 4;
-            chooserEl.style.top =
-                (above > 4 ? above : Math.max(4, window.innerHeight - cr.height - 8)) + "px";
-        }
-    });
+    placeNear(chooserEl, anchorEl);
     const root = buildTree(paths);
     const fileRow = (full, label, depth, isNone) => {
         const row = document.createElement("div");
@@ -804,6 +980,197 @@ const showChooser = (anchorEl, paths, noneVal, current, onPick) => {
     filter.addEventListener("input", () => render(filter.value.trim().toLowerCase()));
     render("");
     filter.focus();
+};
+
+// ------------------------------------------------------------------------------
+// Stack presets: remote CRUD + shared panels
+// ------------------------------------------------------------------------------
+const fetchPresetNames = async () => {
+    try {
+        const resp = await fetch(api.apiURL("/agsoft/lora_presets"));
+        const data = await resp.json();
+        if (data && data.ok && Array.isArray(data.list)) {
+            return data.list;
+        }
+    } catch (e) {
+        console.warn("[AGSoft Multi LoRA Loader] presets list failed:", e);
+    }
+    return [];
+};
+
+const fetchPreset = async (name) => {
+    try {
+        const resp = await fetch(
+            api.apiURL(`/agsoft/lora_preset?name=${encodeURIComponent(name)}`)
+        );
+        const data = await resp.json();
+        if (data && data.ok && data.preset) {
+            return data.preset;
+        }
+    } catch (e) {
+        console.warn("[AGSoft Multi LoRA Loader] preset load failed:", e);
+    }
+    return null;
+};
+
+const savePresetRemote = async (name, payload) => {
+    try {
+        const resp = await fetch(api.apiURL("/agsoft/lora_preset_save"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, ...payload }),
+        });
+        const data = await resp.json();
+        return !!(data && data.ok);
+    } catch (e) {
+        console.warn("[AGSoft Multi LoRA Loader] preset save failed:", e);
+    }
+    return false;
+};
+
+const deletePresetRemote = async (name) => {
+    try {
+        const resp = await fetch(api.apiURL("/agsoft/lora_preset_delete"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+        });
+        const data = await resp.json();
+        return !!(data && data.ok);
+    } catch (e) {
+        console.warn("[AGSoft Multi LoRA Loader] preset delete failed:", e);
+    }
+    return false;
+};
+
+const showPresetSave = (anchorEl, collect) => {
+    hidePresetList();
+    hidePresetPanel();
+    presetPanelEl = document.createElement("div");
+    presetPanelEl.className = "agsoft-p-panel";
+    const label = document.createElement("div");
+    label.className = "agsoft-p-label";
+    label.textContent = "Preset name:";
+    const input = document.createElement("input");
+    input.className = "agsoft-p-input";
+    input.maxLength = 64;
+    const msg = document.createElement("div");
+    msg.className = "agsoft-p-msg";
+    const btns = document.createElement("div");
+    btns.className = "agsoft-p-btns";
+    const ok = document.createElement("button");
+    ok.textContent = "OK";
+    const cancel = document.createElement("button");
+    cancel.textContent = "Cancel";
+    btns.append(ok, cancel);
+    presetPanelEl.append(label, input, msg, btns);
+    document.body.appendChild(presetPanelEl);
+    placeNear(presetPanelEl, anchorEl);
+    let pendingName = "";
+    const doSave = async () => {
+        ok.disabled = true;
+        const good = await savePresetRemote(pendingName, collect());
+        if (good) {
+            hidePresetPanel();
+            return;
+        }
+        ok.disabled = false;
+        msg.textContent = "Save failed";
+        msg.classList.add("err");
+    };
+    ok.addEventListener("click", async () => {
+        if (pendingName) {
+            await doSave();
+            return;
+        }
+        const name = input.value.trim();
+        if (!name) {
+            return;
+        }
+        const names = await fetchPresetNames();
+        if (names.includes(name)) {
+            pendingName = name;
+            label.textContent = `Overwrite "${name}"?`;
+            input.style.display = "none";
+            ok.textContent = "Overwrite";
+            msg.textContent = "";
+            msg.classList.remove("err");
+            return;
+        }
+        pendingName = name;
+        await doSave();
+    });
+    cancel.addEventListener("click", () => hidePresetPanel());
+    input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            ok.click();
+        }
+    });
+    input.focus();
+};
+
+const showPresetList = async (anchorEl, onApply) => {
+    hidePresetPanel();
+    hidePresetList();
+    presetListEl = document.createElement("div");
+    presetListEl.className = "agsoft-p-list";
+    document.body.appendChild(presetListEl);
+    placeNear(presetListEl, anchorEl);
+    const renderRows = (names) => {
+        presetListEl.innerHTML = "";
+        if (!names.length) {
+            const empty = document.createElement("div");
+            empty.className = "agsoft-p-empty";
+            empty.textContent = "No presets yet";
+            presetListEl.appendChild(empty);
+            return;
+        }
+        for (const name of names) {
+            const row = document.createElement("div");
+            row.className = "agsoft-p-row";
+            const nameEl = document.createElement("span");
+            nameEl.className = "agsoft-p-name";
+            nameEl.textContent = name;
+            nameEl.title = name;
+            nameEl.addEventListener("click", async () => {
+                const preset = await fetchPreset(name);
+                hidePresetList();
+                if (preset && onApply) {
+                    onApply(preset);
+                }
+            });
+            const del = document.createElement("button");
+            del.className = "agsoft-p-del";
+            del.textContent = "🗑";
+            del.title = "delete preset";
+            del.addEventListener("click", () => {
+                row.innerHTML = "";
+                row.classList.add("confirm");
+                const q = document.createElement("span");
+                q.className = "agsoft-p-name";
+                q.textContent = `Delete "${name}"?`;
+                const yes = document.createElement("button");
+                yes.textContent = "✔";
+                yes.title = "confirm delete";
+                const no = document.createElement("button");
+                no.textContent = "✖";
+                no.title = "cancel";
+                yes.addEventListener("click", async () => {
+                    const good = await deletePresetRemote(name);
+                    if (good) {
+                        renderRows(await fetchPresetNames());
+                    } else {
+                        q.textContent = "Delete failed";
+                    }
+                });
+                no.addEventListener("click", () => renderRows(names));
+                row.append(q, yes, no);
+            });
+            row.append(nameEl, del);
+            presetListEl.appendChild(row);
+        }
+    };
+    renderRows(await fetchPresetNames());
 };
 
 // ------------------------------------------------------------------------------
@@ -1242,6 +1609,24 @@ const applyClampToRow = (row, meta) => {
     }
 };
 
+// Manual typing obeys the same bounds as the steppers.
+const clampInput = (inp) => {
+    const mn = parseFloat(inp.min);
+    const mx = parseFloat(inp.max);
+    let v = parseFloat(inp.value);
+    if (!Number.isFinite(v)) {
+        v = 0;
+    }
+    if (Number.isFinite(mn)) {
+        v = Math.max(mn, v);
+    }
+    if (Number.isFinite(mx)) {
+        v = Math.min(mx, v);
+    }
+    inp.value = Math.round(v * 100) / 100;
+    return inp.value;
+};
+
 const makeStep = (titleText) => {
     const box = document.createElement("div");
     box.className = "agsoft-lora-step";
@@ -1252,6 +1637,8 @@ const makeStep = (titleText) => {
     const inp = document.createElement("input");
     inp.type = "number";
     inp.step = "0.01";
+    inp.min = String(STRENGTH_MIN);
+    inp.max = String(STRENGTH_MAX);
     inp.title = titleText;
     const inc = document.createElement("button");
     inc.textContent = "▶";
@@ -1344,6 +1731,188 @@ app.registerExtension({
         root.appendChild(head);
         const rows = [];
 
+        // ------------------------------------------------------------------
+        // Slot state persistence: one apply path for presets, manual picks
+        // and session restore; a properties snapshot backs native widgets.
+        // ------------------------------------------------------------------
+        const loraWidgets = [];
+        for (let i = 1; i <= MAX_SLOTS; i++) {
+            loraWidgets.push(nw(node, `lora_${i}`));
+        }
+        let restoring = false;
+
+        const syncOptions = (extra) => {
+            const first = loraWidgets[0];
+            const base =
+                (first && first.options && first.options.values) || [LORA_NONE];
+            const seen = new Set(base);
+            for (const n of extra || []) {
+                if (n) {
+                    seen.add(n);
+                }
+            }
+            const full = [LORA_NONE];
+            for (const v of seen) {
+                if (v && v !== LORA_NONE) {
+                    full.push(v);
+                }
+            }
+            for (const w of loraWidgets) {
+                if (w && w.options) {
+                    w.options.values = full;
+                }
+            }
+            return full;
+        };
+
+        // Stored names may use other path separators; the widget must receive
+        // the exact spelling the live list and server validation expect.
+        const nativeNameMap = (live) => {
+            const map = new Map();
+            for (const n of live || []) {
+                map.set(loraKey(n), n);
+            }
+            for (const w of loraWidgets) {
+                for (const n of (w && w.options && w.options.values) || []) {
+                    const k = loraKey(n);
+                    if (!map.has(k)) {
+                        map.set(k, n);
+                    }
+                }
+            }
+            return map;
+        };
+
+        const defaultSlot = () => ({
+            enabled: true,
+            lora: LORA_NONE,
+            model_strength: 1,
+            clip_strength: 1,
+        });
+
+        const collectState = () => {
+            const slots = [];
+            for (let i = 1; i <= MAX_SLOTS; i++) {
+                const sEn = nw(node, `enabled_${i}`);
+                const sLo = nw(node, `lora_${i}`);
+                const sMs = nw(node, `model_strength_${i}`);
+                const sCs = nw(node, `clip_strength_${i}`);
+                slots.push({
+                    enabled: !!(sEn && sEn.value),
+                    lora: sLo ? String(sLo.value) : LORA_NONE,
+                    model_strength: sMs ? Number(sMs.value) || 0 : 1,
+                    clip_strength: sCs ? Number(sCs.value) || 0 : 1,
+                });
+            }
+            return { active_loras: getActive(), slots };
+        };
+
+        const writeSnapshot = () => {
+            if (restoring) {
+                return;
+            }
+            if (!node.properties) {
+                node.properties = {};
+            }
+            node.properties[SNAPSHOT_KEY] = JSON.stringify(collectState());
+        };
+
+        // Notify the graph so session autosave captures the new state at once.
+        const markChanged = () => {
+            writeSnapshot();
+            node.setDirtyCanvas(true, true);
+            if (node.graph) {
+                node.graph.setDirtyCanvas(true, true);
+                if (node.graph.change) {
+                    node.graph.change();
+                }
+            }
+        };
+
+        const readSnapshot = () => {
+            const raw = node.properties && node.properties[SNAPSHOT_KEY];
+            if (!raw || typeof raw !== "string") {
+                return null;
+            }
+            try {
+                const data = JSON.parse(raw);
+                if (data && Array.isArray(data.slots)) {
+                    return data;
+                }
+            } catch (e) {
+                console.warn("[AGSoft Multi LoRA Loader] snapshot parse failed:", e);
+            }
+            return null;
+        };
+
+        const writeSlot = (i, slot) => {
+            const sEn = nw(node, `enabled_${i}`);
+            const sLo = nw(node, `lora_${i}`);
+            const sMs = nw(node, `model_strength_${i}`);
+            const sCs = nw(node, `clip_strength_${i}`);
+            if (sEn) {
+                sEn.value = slot.enabled !== undefined ? !!slot.enabled : true;
+                if (sEn.callback) {
+                    sEn.callback(sEn.value);
+                }
+            }
+            if (sLo) {
+                sLo.value = slot.lora || LORA_NONE;
+                if (sLo.callback) {
+                    sLo.callback(sLo.value);
+                }
+            }
+            if (sMs) {
+                const v = Number(slot.model_strength);
+                sMs.value = Number.isFinite(v) ? v : 1;
+                if (sMs.callback) {
+                    sMs.callback(sMs.value);
+                }
+            }
+            if (sCs) {
+                const v = Number(slot.clip_strength);
+                sCs.value = Number.isFinite(v) ? v : 1;
+                if (sCs.callback) {
+                    sCs.callback(sCs.value);
+                }
+            }
+        };
+
+        const applyState = async (state) => {
+            const raw = Array.isArray(state.slots) ? state.slots : [];
+            const live = await fetchLiveLoraList();
+            const nativeByKey = nativeNameMap(live);
+            const slots = [];
+            for (let i = 0; i < MAX_SLOTS; i++) {
+                const src = raw[i] || defaultSlot();
+                const native = nativeByKey.get(loraKey(src.lora));
+                slots.push({
+                    enabled: src.enabled !== undefined ? !!src.enabled : true,
+                    lora: native || src.lora || LORA_NONE,
+                    model_strength: Number.isFinite(Number(src.model_strength))
+                        ? Number(src.model_strength) : 1,
+                    clip_strength: Number.isFinite(Number(src.clip_strength))
+                        ? Number(src.clip_strength) : 1,
+                });
+            }
+            const parsed = parseInt(state.active_loras, 10);
+            const count = Math.min(
+                MAX_SLOTS,
+                Math.max(0, Number.isFinite(parsed) ? parsed : 0)
+            );
+            syncOptions((live || []).concat(slots.map((s) => s.lora)));
+            for (let i = 1; i <= MAX_SLOTS; i++) {
+                writeSlot(i, slots[i - 1]);
+            }
+            setActive(count);
+            for (const row of rows) {
+                row.sync();
+                row.refreshClamp();
+            }
+            refresh();
+            markChanged();
+        };
+
         // Toggle All reflects slot states: checked = all on, indeterminate = mixed.
         function syncHeadState() {
             const active = getActive();
@@ -1387,6 +1956,7 @@ app.registerExtension({
                 aw.callback(aw.value);
             }
             refresh();
+            markChanged();
         }
 
         function resetSlot(idx) {
@@ -1447,6 +2017,7 @@ app.registerExtension({
             }
             resetSlot(active);
             setActive(active - 1);
+            markChanged();
         }
 
         function swapSlots(a, b) {
@@ -1468,6 +2039,7 @@ app.registerExtension({
                 rows[b - 1].sync();
                 rows[b - 1].refreshClamp();
             }
+            markChanged();
         }
 
         function moveRow(idx, dir) {
@@ -1496,6 +2068,7 @@ app.registerExtension({
                 }
             }
             syncHeadState();
+            markChanged();
         });
 
         function makeRow(i) {
@@ -1530,23 +2103,9 @@ app.registerExtension({
             };
             // Live list on every open so newly downloaded files appear immediately.
             const getLivePaths = async () => {
-                let list = null;
-                try {
-                    const resp = await fetch(api.apiURL("/agsoft/lora_list"));
-                    const data = await resp.json();
-                    if (data && data.ok && Array.isArray(data.list)) {
-                        list = data.list;
-                    }
-                } catch (e) {
-                    console.warn("[AGSoft Multi LoRA Loader] lora list fetch failed:", e);
-                }
+                const list = await fetchLiveLoraList();
                 if (list) {
-                    const full = [noneVal].concat(
-                        list.filter((p) => p && p !== noneVal)
-                    );
-                    if (nLo && nLo.options) {
-                        nLo.options.values = full;
-                    }
+                    const full = syncOptions(list);
                     return full.filter((o) => o && o !== noneVal);
                 }
                 const cur = (nLo && nLo.options && nLo.options.values) || [];
@@ -1570,6 +2129,10 @@ app.registerExtension({
             };
             syncFromNative();
             const refreshClamp = async () => {
+                for (const inp of [ms, cs]) {
+                    inp.min = String(STRENGTH_MIN);
+                    inp.max = String(STRENGTH_MAX);
+                }
                 const name = nLo ? String(nLo.value) : "";
                 if (isNone(name)) {
                     return;
@@ -1589,12 +2152,14 @@ app.registerExtension({
                 if (!nLo) {
                     return;
                 }
+                syncOptions([v]);
                 nLo.value = v;
                 if (nLo.callback) {
                     nLo.callback(nLo.value);
                 }
                 row.sync();
                 row.refreshClamp();
+                markChanged();
             };
             selBtn.addEventListener("click", async (e) => {
                 e.preventDefault();
@@ -1610,22 +2175,25 @@ app.registerExtension({
                     }
                 }
                 syncHeadState();
+                markChanged();
             });
             ms.addEventListener("change", () => {
                 if (nMs) {
-                    nMs.value = parseFloat(ms.value) || 0;
+                    nMs.value = clampInput(ms);
                     if (nMs.callback) {
                         nMs.callback(nMs.value);
                     }
                 }
+                markChanged();
             });
             cs.addEventListener("change", () => {
                 if (nCs) {
-                    nCs.value = parseFloat(cs.value) || 0;
+                    nCs.value = clampInput(cs);
                     if (nCs.callback) {
                         nCs.callback(nCs.value);
                     }
                 }
+                markChanged();
             });
             info.addEventListener("click", (e) => {
                 e.preventDefault();
@@ -1649,6 +2217,7 @@ app.registerExtension({
                             }
                             row.sync();
                             syncHeadState();
+                            markChanged();
                         },
                     },
                     { label: "⬆️ Move Up", disabled: i <= 1, cb: () => moveRow(i, -1) },
@@ -1681,6 +2250,7 @@ app.registerExtension({
             rows.push(row);
             root.appendChild(row.el);
         }
+
         const btns = document.createElement("div");
         btns.className = "agsoft-lora-btns";
         btns.style.pointerEvents = "auto";
@@ -1690,25 +2260,76 @@ app.registerExtension({
             e.preventDefault();
             setActive(getActive() + 1);
         });
-        btns.appendChild(addBtn);
+        const saveBtn = document.createElement("button");
+        saveBtn.textContent = "💾 Save Preset";
+        saveBtn.classList.add("agsoft-p-save-btn");
+        saveBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            showPresetSave(saveBtn, () => {
+                const state = collectState();
+                return {
+                    active_loras: state.active_loras,
+                    slots: state.slots.slice(0, state.active_loras),
+                };
+            });
+        });
+        const presetsBtn = document.createElement("button");
+        presetsBtn.textContent = "📂 Presets";
+        presetsBtn.classList.add("agsoft-p-list-btn");
+        presetsBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            if (presetListEl) {
+                hidePresetList();
+                return;
+            }
+            showPresetList(presetsBtn, (preset) => applyState(preset));
+        });
+        btns.append(addBtn, saveBtn, presetsBtn);
         root.appendChild(btns);
         const uiHeight = (a) => HEAD_H + BTNS_H + a * ROW_H + (a + 1) * GAP;
         const dw = node.addDOMWidget("agsoft_lora_ui", "div", root, {
             serialize: false,
         });
         dw.computeSize = (w) => [w || 200, uiHeight(getActive())];
+
+        const origOnSerialize = node.onSerialize;
+        node.onSerialize = function (o) {
+            writeSnapshot();
+            if (origOnSerialize) {
+                origOnSerialize.apply(this, arguments);
+            }
+            if (o && !o.properties) {
+                o.properties = {};
+            }
+            if (o && node.properties) {
+                o.properties[SNAPSHOT_KEY] = node.properties[SNAPSHOT_KEY];
+            }
+        };
+
         const origOnConfigure = node.onConfigure;
         node.onConfigure = function (info) {
             if (origOnConfigure) {
                 origOnConfigure.apply(this, arguments);
             }
+            restoring = true;
             setTimeout(() => {
-                applyTheme(node, root);
-                for (const row of rows) {
-                    row.sync();
-                    row.refreshClamp();
+                const finish = () => {
+                    restoring = false;
+                    applyTheme(node, root);
+                    for (const row of rows) {
+                        row.sync();
+                        row.refreshClamp();
+                    }
+                    refresh();
+                    markChanged();
+                };
+                const snap = readSnapshot();
+                const nativeState = collectState();
+                if (snap && JSON.stringify(snap) !== JSON.stringify(nativeState)) {
+                    applyState(snap).then(finish, finish);
+                } else {
+                    finish();
                 }
-                refresh();
             }, 0);
         };
         refresh();
