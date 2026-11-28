@@ -139,6 +139,7 @@ const showToast = (msg, isError) => {
 // Tooltip for canvas buttons (one per page).
 // ------------------------------------------------------------------------------
 let tipEl = null;
+let tipOwner = null;
 const tipShow = (text, x, y) => {
     if (!tipEl) {
         tipEl = document.createElement("div");
@@ -164,8 +165,33 @@ const tipShow = (text, x, y) => {
     tipEl.style.top = (y + 18) + "px";
 };
 const tipHide = () => {
+    tipOwner = null;
     if (tipEl) tipEl.style.display = "none";
 };
+// Авто-скрытие: node.onMouseMove вызывается ТОЛЬКО пока курсор над нодой,
+// поэтому при уходе на фон / другую ноду / DOM-панель подсказка зависала.
+// Глобальный mousemove (bubble, после обработчика канваса) проверяет зону.
+// Auto-hide: node.onMouseMove fires ONLY while the cursor is over the node,
+// so leaving to background / another node / DOM panel left the hint frozen.
+// A global mousemove (bubble, after the canvas handler) re-checks the zone.
+document.addEventListener("mousemove", (e) => {
+    if (!tipEl || tipEl.style.display === "none" || !tipOwner) return;
+    const cv = app.canvas && app.canvas.canvas;
+    if (!cv || e.target !== cv) {
+        tipHide();
+        return;
+    }
+    try {
+        const p = app.canvas.convertEventToCanvasOffset(e);
+        const local = [p[0] - tipOwner.node.pos[0], p[1] - tipOwner.node.pos[1]];
+        if (!tipOwner.hit(local)) tipHide();
+    } catch (err) {
+        tipHide();
+    }
+});
+document.addEventListener("mouseleave", tipHide);
+document.addEventListener("pointerdown", tipHide, true);
+window.addEventListener("blur", tipHide);
 const TIP_TEXT = {
     save: "Save to output with current settings\nСохранить в output с текущими настройками",
     open: "Open image in a new tab\nОткрыть изображение в новой вкладке",
@@ -971,6 +997,7 @@ app.registerExtension({
                 else if (node._agsoft_pointer) { el.style.cursor = ""; node._agsoft_pointer = false; }
             }
             if (hit && TIP_TEXT[hit.action] && e && e.clientX != null) {
+                tipOwner = { node, hit: hitAction };
                 tipShow(TIP_TEXT[hit.action], e.clientX, e.clientY);
             } else {
                 tipHide();
